@@ -295,13 +295,11 @@ const TENANT_ID = 'dbf9fcd3-110a-4dde-8ef9-40c2f89967a9';
 const CLOUD_ENABLED = !SUPABASE_URL.startsWith('YOUR_') && !SUPABASE_ANON_KEY.startsWith('YOUR_') && !TENANT_ID.startsWith('YOUR_');
 const sb = CLOUD_ENABLED ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
 
-// ============ 身份與權限（僅前端UI層級的防呆，非嚴謹帳號安全機制）============
-// ⚠️ 這組 PIN 是寫死在前端程式碼裡，任何人檢視原始碼都看得到。
-// 用途是防止客服人員「不小心」切換成管理員身份，不是防止真的想繞過的人。
-// 之後要做到真正的帳號安全，需要接 Supabase Auth，每個人有自己的帳密登入。
-const ADMIN_PIN = '1201';
+// ============ 身份與權限（接 Supabase Auth 真帳號登入）============
 const DEFAULT_PERMISSIONS = { staff: { 'orders':true, 'new-order':true, 'filter':true, 'products':true, 'customers':true, 'report':false } };
-let currentRole = load('role'); // 'admin' | 'staff' | null
+let currentUser = null;     // Supabase Auth 的 user 物件
+let currentProfile = null;  // profiles 表的資料（含 role, name, tenant_id...）
+let currentRole = null;     // 'admin' | 'staff' | null（尚未登入）
 let PERMISSIONS = load('permissions') || DEFAULT_PERMISSIONS;
 
 function load(k) { try { const r=localStorage.getItem('bpd_'+k); return r?JSON.parse(r):null; } catch(e){return null;} }
@@ -474,7 +472,7 @@ function canAccess(page){
   if(page==='home') return true;
   if(currentRole==='admin') return true;
   if(currentRole==='staff') return PERMISSIONS.staff?.[page] !== false && page!=='settings';
-  return false; // 尚未選擇身份
+  return false; // 尚未登入
 }
 
 function applyRolePermissions(){
@@ -484,31 +482,75 @@ function applyRolePermissions(){
     t.style.display = allowed ? '' : 'none';
   });
   const badge = document.getElementById('role-badge-btn');
-  if(badge) badge.textContent = currentRole==='admin' ? '👑 管理員' : (currentRole==='staff' ? '🧑‍💼 客服/門市' : '身份');
+  if(badge) badge.textContent = currentRole==='admin' ? `👑 ${currentProfile?.name||'管理員'}` : (currentRole==='staff' ? `🧑‍💼 ${currentProfile?.name||'客服/門市'}` : '身份');
 }
 
-function renderRolePicker(){
+// ---- 登入畫面 ----
+function renderLoginForm(errorMsg){
   document.getElementById('role-picker-content').innerHTML = `
-    <div class="modal-title" style="text-align:center;">選擇登入身份</div>
-    <div style="font-size:12px;color:var(--text3);text-align:center;margin-bottom:18px;">這是這支裝置的登入身份設定，跟雲端資料同步無關</div>
-    <button class="btn btn-gold" onclick="selectRole('admin')">👑 我是管理員</button>
-    <button class="btn btn-secondary" style="width:100%;margin-top:10px;" onclick="selectRole('staff')">🧑‍💼 我是客服/門市人員</button>
+    <div class="modal-title" style="text-align:center;">佛牌殿管理系統登入</div>
+    ${errorMsg?`<div style="background:rgba(192,57,43,0.1);color:#c0392b;font-size:12px;padding:8px 10px;border-radius:8px;margin-bottom:10px;text-align:center;">${errorMsg}</div>`:''}
+    <input class="form-input" type="email" id="login-email" placeholder="Email" style="margin-bottom:10px;" autocomplete="username">
+    <input class="form-input" type="password" id="login-pw" placeholder="密碼" style="margin-bottom:14px;" autocomplete="current-password">
+    <button class="btn btn-gold" onclick="doLogin()" id="login-btn">登入</button>
+    <div style="font-size:11px;color:var(--text3);text-align:center;margin-top:14px;">帳號由管理員建立，如尚未有帳號請聯繫店長</div>
   `;
+  document.getElementById('login-pw')?.addEventListener('keydown', e=>{ if(e.key==='Enter') doLogin(); });
 }
-window.selectRole=function(role){
-  if(role==='admin'){
-    const pin = prompt('請輸入管理員 PIN 碼：');
-    if(pin!==ADMIN_PIN){ toast('⚠ PIN 碼錯誤'); return; }
-  }
-  currentRole = role;
-  save('role', role);
+window.doLogin=async function(){
+  const email = document.getElementById('login-email')?.value?.trim();
+  const password = document.getElementById('login-pw')?.value;
+  if(!email||!password){ renderLoginForm('請輸入 Email 和密碼'); return; }
+  const btn = document.getElementById('login-btn'); if(btn){ btn.disabled=true; btn.textContent='登入中...'; }
+  const { data, error } = await sb.auth.signInWithPassword({ email, password });
+  if(error){ renderLoginForm('登入失敗：帳號或密碼錯誤'); return; }
+  const ok = await loadCurrentProfile(data.user);
+  if(!ok) return; // loadCurrentProfile 內已處理錯誤訊息與登出
   document.getElementById('role-picker').style.display='none';
   applyRolePermissions();
+  await syncAllFromCloud();
+  await logActivity('登入', '');
   navigateTo('home');
 }
-window.promptSwitchRole=function(){
-  renderRolePicker();
+window.doLogout=async function(){
+  await sb.auth.signOut();
+  currentUser=null; currentProfile=null; currentRole=null;
+  renderLoginForm();
   document.getElementById('role-picker').style.display='flex';
+}
+window.promptSwitchRole=function(){
+  openModal(`
+    <div class="modal-title">帳號</div>
+    <div style="font-size:14px;margin-bottom:4px;">${currentProfile?.name||''}</div>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:18px;">${currentProfile?.email||''} · ${currentRole==='admin'?'管理員':'客服/門市人員'}</div>
+    <button class="btn btn-secondary" style="width:100%;" onclick="_closeModal();doLogout()">登出</button>
+  `);
+}
+
+// 登入成功後，抓這個帳號在 profiles 表裡的角色/租戶資料
+async function loadCurrentProfile(user){
+  currentUser = user;
+  try{
+    const { data, error } = await sb.from('profiles').select('*').eq('id', user.id).maybeSingle();
+    if(error) throw error;
+    if(!data){ await sb.auth.signOut(); renderLoginForm('這個帳號尚未設定權限，請聯繫管理員'); return false; }
+    if(!data.active){ await sb.auth.signOut(); renderLoginForm('這個帳號已被停用，請聯繫管理員'); return false; }
+    currentProfile = data;
+    currentRole = data.role;
+    return true;
+  }catch(e){
+    console.error(e);
+    await sb.auth.signOut();
+    renderLoginForm('讀取帳號資料失敗，請重新登入');
+    return false;
+  }
+}
+
+// ============ 操作紀錄 ============
+async function logActivity(action, detail){
+  if(!CLOUD_ENABLED || !currentUser) return;
+  try{ await sb.from('activity_log').insert({ tenant_id:TENANT_ID, user_id:currentUser.id, user_name:currentProfile?.name||'', action, detail:detail||'' }); }
+  catch(e){ console.error('寫入操作紀錄失敗', e); }
 }
 
 // ============ NAVIGATION ============
@@ -675,7 +717,7 @@ window.updateOrderStatus=async function(id){
   if(!sel) return;
   const orders = getOrders();
   const i = orders.findIndex(o=>o.id===id);
-  if(i>=0){ orders[i].status=sel.value; save('orders',orders); await pushOrderToCloud(orders[i]); }
+  if(i>=0){ orders[i].status=sel.value; save('orders',orders); await pushOrderToCloud(orders[i]); await logActivity('更新訂單狀態', `#${id} → ${sel.value}`); }
   _closeModal();
   toast('✅ 訂單狀態已更新'+(CLOUD_ENABLED?'（已同步雲端）':''));
   renderPage('orders');
@@ -853,6 +895,7 @@ window.submitOrder=async function(){
   else { savedCustomer=customers[ci]; }
   save('customers',customers);
   await pushCustomerToCloud(savedCustomer);
+  await logActivity('建立訂單', `#${newId} ${customer}`);
   
   selectedProducts=[];
   newOrder={ customer:'',phone:'',shipping:'',shippingDetail:'',items:[],gift:'',staff:'',source:'',note:'' };
@@ -1059,7 +1102,7 @@ window.updateStock=async function(id){
   const val=parseInt(document.getElementById('stock-adj')?.value);
   if(isNaN(val)||val<0){ toast('⚠ 請輸入有效數量'); return; }
   const products=getProducts(); const i=products.findIndex(p=>p.id===id);
-  if(i>=0){ products[i].stock=val; save('products',products); await pushProductToCloud(products[i]); }
+  if(i>=0){ products[i].stock=val; save('products',products); await pushProductToCloud(products[i]); await logActivity('調整庫存', `${products[i].name} → ${val}`); }
   _closeModal(); toast('✅ 庫存已更新'+(CLOUD_ENABLED?'（已同步雲端）':'')); renderPage('products');
 }
 
@@ -1156,6 +1199,7 @@ window.saveNewProduct=async function(){
   products.unshift(newProduct);
   save('products',products);
   await pushProductToCloud(newProduct);
+  await logActivity('新增商品', `${newProduct.name}（${code}）`);
 
   if(master==='__new__'){ const m=load('masters')||MASTERS; if(!m.includes(master)) { m.push(master); save('masters',m); } }
 
@@ -1282,7 +1326,9 @@ function renderReport(){
 }
 
 // ============ BIND EVENTS ============
-function bindPageEvents(page){}
+function bindPageEvents(page){
+  if(page==='settings' && currentRole==='admin'){ loadAccountsList(); loadActivityLogList(); }
+}
 
 // ============ NOTIFICATIONS ============
 window.showNotif=function(){
@@ -1313,9 +1359,22 @@ function renderSettings(){
       <div style="font-size:12px;color:var(--text3);margin-bottom:10px;">管理員固定擁有所有權限，以下設定套用在「客服/門市人員」身份，會同步到所有裝置</div>
       ${rows}
     </div>
+
+    <div style="background:var(--white);border-radius:var(--radius);padding:16px;margin-bottom:14px;border:1px solid rgba(26,10,46,0.06);">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+        <div class="sec" style="margin:0;">帳號管理</div>
+        <button class="btn btn-primary btn-sm" style="margin:0;" onclick="openCreateAccountModal()">＋ 新增帳號</button>
+      </div>
+      <div id="accounts-list"><div style="text-align:center;color:var(--text3);font-size:12px;padding:20px;">載入中...</div></div>
+    </div>
+
+    <div style="background:var(--white);border-radius:var(--radius);padding:16px;margin-bottom:14px;border:1px solid rgba(26,10,46,0.06);">
+      <div class="sec" style="margin:0 0 10px;">操作紀錄</div>
+      <div id="activity-log-list"><div style="text-align:center;color:var(--text3);font-size:12px;padding:20px;">載入中...</div></div>
+    </div>
+
     <div style="font-size:11px;color:var(--text3);padding:0 4px;line-height:1.6;">
-      ⚠ 這是介面層級的顯示/隱藏，主要目的是簡化客服人員看到的功能、避免誤操作報表等內部資料。<br>
-      如果要做到真正的帳號層級資料保護（例如禁止用 API 直接讀取報表資料），未來需要接上 Supabase Auth 帳號系統。
+      ⚠ 「開放/關閉」的權限開關是介面層級顯示控制；帳號本身已經是真正的 Supabase Auth 登入驗證，資料庫層級也已限制只有登入的帳號能讀寫本租戶資料。
     </div>
     <div style="height:30px;"></div>`;
 }
@@ -1324,9 +1383,118 @@ window.togglePermission=async function(key){
   PERMISSIONS.staff[key] = !(PERMISSIONS.staff[key]!==false);
   save('permissions', PERMISSIONS);
   await pushPermissionsToCloud();
+  await logActivity('修改權限設定', `${PERMISSION_LABELS[key]||key} → ${PERMISSIONS.staff[key]?'開放':'關閉'}`);
   toast('✅ 權限已更新'+(CLOUD_ENABLED?'（已同步所有裝置）':''));
   renderPage('settings');
 }
+
+// ---- 帳號管理 ----
+async function callAdminApi(action, payload){
+  const { data:{ session } } = await sb.auth.getSession();
+  const res = await fetch('/api/admin', {
+    method:'POST',
+    headers:{ 'Content-Type':'application/json' },
+    body: JSON.stringify({ action, payload, accessToken: session?.access_token })
+  });
+  const json = await res.json();
+  if(!res.ok) throw new Error(json.error||'操作失敗');
+  return json;
+}
+
+async function loadAccountsList(){
+  const el = document.getElementById('accounts-list'); if(!el) return;
+  try{
+    const { data, error } = await sb.from('profiles').select('*').eq('tenant_id', TENANT_ID).order('created_at');
+    if(error) throw error;
+    el.innerHTML = data.map(a=>`
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid rgba(26,10,46,0.06);">
+        <div>
+          <div style="font-size:14px;">${a.name} ${a.id===currentUser?.id?'<span style="color:var(--text3);font-size:11px;">（你）</span>':''}</div>
+          <div style="font-size:11px;color:var(--text3);">${a.email||''} · ${a.role==='admin'?'管理員':'客服/門市人員'}${a.active?'':' · 已停用'}</div>
+        </div>
+        ${a.id===currentUser?.id?'':`<button class="btn btn-secondary btn-sm" style="margin:0;" onclick="openAccountEditModal('${a.id}')">管理</button>`}
+      </div>`).join('') || '<div style="text-align:center;color:var(--text3);font-size:12px;padding:12px;">尚無帳號</div>';
+  }catch(e){ console.error(e); el.innerHTML = '<div style="color:#c0392b;font-size:12px;">載入失敗</div>'; }
+}
+
+window.openCreateAccountModal=function(){
+  openModal(`
+    <div class="modal-title">新增帳號</div>
+    <input class="form-input" type="text" id="na-name" placeholder="姓名" style="margin-bottom:10px;">
+    <input class="form-input" type="email" id="na-email" placeholder="Email（登入帳號）" style="margin-bottom:10px;">
+    <input class="form-input" type="password" id="na-pw" placeholder="初始密碼（至少6碼）" style="margin-bottom:10px;">
+    <div class="switch" style="margin-bottom:16px;">
+      <button class="switch-opt on" id="na-role-staff" onclick="setNewAccountRole('staff')">客服/門市人員</button>
+      <button class="switch-opt" id="na-role-admin" onclick="setNewAccountRole('admin')">管理員</button>
+    </div>
+    <button class="btn btn-gold" id="na-submit" onclick="createAccount()">建立帳號</button>
+  `);
+  window._newAccountRole = 'staff';
+}
+window.setNewAccountRole=function(role){
+  window._newAccountRole = role;
+  document.getElementById('na-role-staff')?.classList.toggle('on', role==='staff');
+  document.getElementById('na-role-admin')?.classList.toggle('on', role==='admin');
+}
+window.createAccount=async function(){
+  const name=document.getElementById('na-name')?.value?.trim();
+  const email=document.getElementById('na-email')?.value?.trim();
+  const password=document.getElementById('na-pw')?.value;
+  if(!name||!email||!password){ toast('⚠ 請填寫完整資料'); return; }
+  const btn=document.getElementById('na-submit'); if(btn){ btn.disabled=true; btn.textContent='建立中...'; }
+  try{
+    await callAdminApi('create_user', { name, email, password, role: window._newAccountRole||'staff' });
+    toast('✅ 帳號已建立');
+    _closeModal();
+    loadAccountsList();
+  }catch(e){ toast('⚠ '+e.message); if(btn){ btn.disabled=false; btn.textContent='建立帳號'; } }
+}
+
+window.openAccountEditModal=async function(userId){
+  const { data:a } = await sb.from('profiles').select('*').eq('id', userId).single();
+  if(!a) return;
+  openModal(`
+    <div class="modal-title">管理帳號</div>
+    <div style="font-size:14px;margin-bottom:2px;">${a.name}</div>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:16px;">${a.email||''}</div>
+    <div class="sec" style="margin:0 0 8px;">身份</div>
+    <div class="switch" style="margin-bottom:16px;">
+      <button class="switch-opt${a.role==='staff'?' on':''}" onclick="updateAccount('${userId}',{role:'staff'})">客服/門市人員</button>
+      <button class="switch-opt${a.role==='admin'?' on':''}" onclick="updateAccount('${userId}',{role:'admin'})">管理員</button>
+    </div>
+    <div class="sec" style="margin:0 0 8px;">帳號狀態</div>
+    <button class="btn ${a.active?'btn-secondary':'btn-gold'}" style="width:100%;margin-bottom:10px;" onclick="updateAccount('${userId}',{active:${!a.active}})">${a.active?'停用這個帳號':'重新啟用這個帳號'}</button>
+    <div class="sec" style="margin:0 0 8px;">重設密碼</div>
+    <input class="form-input" type="password" id="rp-pw" placeholder="新密碼（至少6碼）" style="margin-bottom:10px;">
+    <button class="btn btn-secondary" style="width:100%;" onclick="resetAccountPassword('${userId}')">重設密碼</button>
+  `);
+}
+window.updateAccount=async function(userId, changes){
+  try{ await callAdminApi('update_account', { userId, ...changes }); toast('✅ 已更新'); _closeModal(); loadAccountsList(); }
+  catch(e){ toast('⚠ '+e.message); }
+}
+window.resetAccountPassword=async function(userId){
+  const newPassword=document.getElementById('rp-pw')?.value;
+  if(!newPassword||newPassword.length<6){ toast('⚠ 密碼至少需要6碼'); return; }
+  try{ await callAdminApi('reset_password', { userId, newPassword }); toast('✅ 密碼已重設'); _closeModal(); }
+  catch(e){ toast('⚠ '+e.message); }
+}
+
+// ---- 操作紀錄 ----
+async function loadActivityLogList(){
+  const el = document.getElementById('activity-log-list'); if(!el) return;
+  try{
+    const { data, error } = await sb.from('activity_log').select('*').eq('tenant_id', TENANT_ID).order('created_at',{ascending:false}).limit(50);
+    if(error) throw error;
+    el.innerHTML = data.map(l=>`
+      <div style="padding:8px 0;border-bottom:1px solid rgba(26,10,46,0.06);font-size:12px;">
+        <span style="color:var(--text2);">${new Date(l.created_at).toLocaleString('zh-TW',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'})}</span>
+        <span style="font-weight:500;"> ${l.user_name||'系統'}</span> ${l.action}
+        ${l.detail?`<span style="color:var(--text3);">· ${l.detail}</span>`:''}
+      </div>`).join('') || '<div style="text-align:center;color:var(--text3);font-size:12px;padding:12px;">尚無紀錄</div>';
+  }catch(e){ console.error(e); el.innerHTML = '<div style="color:#c0392b;font-size:12px;">載入失敗</div>'; }
+}
+
 
 
 window.refreshProductsFromCloud=async function(){
@@ -1353,15 +1521,31 @@ window.refreshCustomersFromCloud=async function(){
 
 async function boot(){
   initDB();
-  if(CLOUD_ENABLED) await syncAllFromCloud();
   const now = new Date();
   document.getElementById('topbar-date').textContent = `${now.getFullYear()}/${now.getMonth()+1}/${now.getDate()}`;
-  if(!currentRole){
-    renderRolePicker();
+
+  if(!CLOUD_ENABLED){
+    // 沒接雲端資料庫時（本機測試模式），略過登入，直接給完整權限方便開發測試
+    currentRole = 'admin';
+    applyRolePermissions();
+    renderPage('home');
+    return;
+  }
+
+  const { data:{ session } } = await sb.auth.getSession();
+  if(!session){
+    renderLoginForm();
     document.getElementById('role-picker').style.display='flex';
+    return;
+  }
+  const ok = await loadCurrentProfile(session.user);
+  if(!ok){
+    document.getElementById('role-picker').style.display='flex';
+    return;
   }
   applyRolePermissions();
-  renderPage(currentRole ? (currentPage||'home') : 'home');
+  await syncAllFromCloud();
+  renderPage('home');
 }
 boot();
 </script>
