@@ -1107,6 +1107,10 @@ window.openProductDetail=function(id){
         <button class="btn btn-primary btn-sm" style="width:auto;margin-top:0;" onclick="updateStock('${id}')">更新</button>
       </div>
     </div>
+    <div style="display:flex;gap:8px;margin-top:14px;">
+      <button class="btn btn-secondary" style="flex:1;margin-top:0;" onclick="openEditProduct('${id}')">✏️ 編輯商品</button>
+      <button class="btn" style="flex:1;margin-top:0;background:#fdece8;color:#c0392b;" onclick="confirmDeleteProduct('${id}')">🗑 刪除</button>
+    </div>
     <button class="btn btn-secondary" style="width:100%;margin-top:10px;" onclick="_closeModal()">關閉</button>
   `);
 }
@@ -1181,6 +1185,120 @@ window.previewPhoto=function(input){
     document.querySelector('.photo-upload').style.display='none';
   };
   r.readAsDataURL(input.files[0]);
+}
+
+// ---- 編輯商品 ----
+window.openEditProduct=function(id){
+  const p = getProductById(id); if(!p) return;
+  const masters=load('masters')||MASTERS;
+  const cats=load('cats')||CATS;
+  const effs=load('effects')||EFFECTS;
+
+  openModal(`
+    <div class="modal-title">編輯商品</div>
+    <div class="form-block"><label class="form-label">商品名稱 *</label><input class="form-input" id="ep-name" value="${p.name}"></div>
+    <div class="form-block"><label class="form-label">售價 *</label><input class="form-input" id="ep-price" type="number" value="${p.price}"></div>
+    <div class="form-block"><label class="form-label">庫存數量</label><input class="form-input" id="ep-stock" type="number" value="${p.stock}"></div>
+    <div class="form-block">
+      <label class="form-label">種類 *</label>
+      <select class="form-select" id="ep-cat">
+        ${[...new Set([p.category, ...cats])].map(c=>`<option ${c===p.category?'selected':''}>${c}</option>`).join('')}
+      </select>
+    </div>
+    <div class="form-block">
+      <label class="form-label">正牌 / 陰牌</label>
+      <div class="switch">
+        <button class="switch-opt${p.type==='正牌'?' on':''}" id="ep-pos" onclick="document.getElementById('ep-pos').classList.add('on');document.getElementById('ep-neg').classList.remove('on')">正牌</button>
+        <button class="switch-opt${p.type==='陰牌'?' on':''}" id="ep-neg" onclick="document.getElementById('ep-neg').classList.add('on');document.getElementById('ep-pos').classList.remove('on')">陰牌</button>
+      </div>
+    </div>
+    <div class="form-block">
+      <label class="form-label">師傅/寺廟</label>
+      <select class="form-select" id="ep-master">
+        <option value="">選擇師傅...</option>
+        ${[...new Set([p.master, ...masters].filter(Boolean))].map(m=>`<option ${m===p.master?'selected':''}>${m}</option>`).join('')}
+      </select>
+    </div>
+    <div class="form-block"><label class="form-label">製作年分</label><input class="form-input" id="ep-year" value="${p.year||''}"></div>
+    <div class="form-block"><label class="form-label">材料</label><input class="form-input" id="ep-material" value="${p.material||''}"></div>
+    <div class="form-block"><label class="form-label">特色描述</label><textarea class="form-textarea" id="ep-feature" rows="2">${p.feature||''}</textarea></div>
+    <div class="form-block">
+      <label class="form-label">功效（可複選）</label>
+      <div class="chip-row" id="ep-effects">${[...new Set([...effs, ...p.effects])].map(e=>`<span class="chip${p.effects.includes(e)?' on':''}" onclick="this.classList.toggle('on')">${e}</span>`).join('')}</div>
+    </div>
+    <div class="form-block">
+      <label class="form-label">商品照片</label>
+      <div style="display:flex;gap:10px;align-items:center;">
+        <label class="photo-upload" for="ep-photo-file" style="display:${p.image?'none':'flex'};">📷</label>
+        <input type="file" id="ep-photo-file" accept="image/*" capture="environment" style="display:none;" onchange="previewEditPhoto(this)">
+        <img id="ep-photo-preview" src="${p.image||''}" style="display:${p.image?'block':'none'};" class="photo-preview" onclick="document.getElementById('ep-photo-file').click()">
+      </div>
+    </div>
+    <button class="btn btn-gold" onclick="saveEditProduct('${id}')">儲存變更</button>
+    <div style="height:20px;"></div>
+  `);
+}
+window.previewEditPhoto=function(input){
+  if(!input.files||!input.files[0]) return;
+  const r=new FileReader();
+  r.onload=function(e){
+    const img=document.getElementById('ep-photo-preview');
+    img.src=e.target.result; img.style.display='block';
+    const uploadBtn = document.querySelector('label[for="ep-photo-file"]');
+    if(uploadBtn) uploadBtn.style.display='none';
+  };
+  r.readAsDataURL(input.files[0]);
+}
+window.saveEditProduct=async function(id){
+  const products = getProducts();
+  const i = products.findIndex(p=>p.id===id);
+  if(i<0) return;
+  const name=document.getElementById('ep-name')?.value?.trim();
+  const price=parseInt(document.getElementById('ep-price')?.value);
+  const cat=document.getElementById('ep-cat')?.value;
+  if(!name){ toast('⚠ 請填入商品名稱'); return; }
+  if(!price||isNaN(price)){ toast('⚠ 請填入售價'); return; }
+
+  const type=document.getElementById('ep-pos')?.classList.contains('on')?'正牌':'陰牌';
+  const master=document.getElementById('ep-master')?.value||'';
+  const year=document.getElementById('ep-year')?.value||'';
+  const stock=parseInt(document.getElementById('ep-stock')?.value)||0;
+  const material=document.getElementById('ep-material')?.value||'';
+  const feature=document.getElementById('ep-feature')?.value||'';
+  const effects=[...document.querySelectorAll('#ep-effects .chip.on')].map(c=>c.textContent);
+  const photoPreview=document.getElementById('ep-photo-preview');
+  const image=photoPreview?.style.display!=='none'?(photoPreview?.src||''):'';
+
+  const updated = { ...products[i], name, price, category:cat, type, master, year, stock, material, feature, effects, image };
+  products[i] = updated;
+  save('products', products);
+  await pushProductToCloud(updated);
+  await logActivity('編輯商品', `${updated.name}（${updated.code}）`);
+
+  _closeModal(); toast('✅ 商品已更新'+(CLOUD_ENABLED?'（已同步雲端）':'')); renderPage('products');
+}
+
+// ---- 刪除商品 ----
+window.confirmDeleteProduct=function(id){
+  const p = getProductById(id); if(!p) return;
+  openModal(`
+    <div class="modal-title">刪除商品</div>
+    <div style="font-size:14px;margin-bottom:6px;">確定要刪除「${p.name}」嗎？</div>
+    <div style="font-size:12px;color:#c0392b;margin-bottom:18px;">⚠ 這個動作無法復原。過去的訂單紀錄仍會保留商品名稱，但之後無法再從商品庫查詢到這項商品。</div>
+    <button class="btn" style="width:100%;background:#c0392b;color:#fff;" onclick="deleteProduct('${id}')">確定刪除</button>
+    <button class="btn btn-secondary" style="width:100%;margin-top:8px;" onclick="_closeModal()">取消</button>
+  `);
+}
+window.deleteProduct=async function(id){
+  const p = getProductById(id);
+  const products = getProducts().filter(x=>x.id!==id);
+  save('products', products);
+  if(CLOUD_ENABLED){
+    try{ const { error } = await sb.from('products').delete().eq('id', id); if(error) throw error; }
+    catch(e){ console.error('雲端刪除失敗', e); toast('⚠ 雲端刪除失敗，請檢查網路'); }
+  }
+  await logActivity('刪除商品', p?`${p.name}（${p.code}）`:id);
+  _closeModal(); toast('✅ 商品已刪除'); renderPage('products');
 }
 
 window.saveNewProduct=async function(){
