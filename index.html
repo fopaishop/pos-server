@@ -11,6 +11,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@400;500;600&family=Noto+Sans+TC:wght@300;400;500&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <style>
 :root {
   --gold: #d4a843;
@@ -486,6 +487,17 @@ function applyRolePermissions(){
 }
 
 // ---- 登入畫面 ----
+function showRolePicker(){
+  const el = document.getElementById('role-picker');
+  el.style.display='flex';
+  requestAnimationFrame(()=> el.classList.add('open'));
+}
+function hideRolePicker(){
+  const el = document.getElementById('role-picker');
+  el.classList.remove('open');
+  setTimeout(()=>{ el.style.display='none'; }, 250);
+}
+
 function renderLoginForm(errorMsg){
   document.getElementById('role-picker-content').innerHTML = `
     <div class="modal-title" style="text-align:center;">佛牌殿管理系統登入</div>
@@ -506,7 +518,7 @@ window.doLogin=async function(){
   if(error){ renderLoginForm('登入失敗：帳號或密碼錯誤'); return; }
   const ok = await loadCurrentProfile(data.user);
   if(!ok) return; // loadCurrentProfile 內已處理錯誤訊息與登出
-  document.getElementById('role-picker').style.display='none';
+  hideRolePicker();
   applyRolePermissions();
   await syncAllFromCloud();
   await logActivity('登入', '');
@@ -516,7 +528,7 @@ window.doLogout=async function(){
   await sb.auth.signOut();
   currentUser=null; currentProfile=null; currentRole=null;
   renderLoginForm();
-  document.getElementById('role-picker').style.display='flex';
+  showRolePicker();
 }
 window.promptSwitchRole=function(){
   openModal(`
@@ -1065,6 +1077,7 @@ function renderProducts(){
     <div style="display:flex;gap:8px;align-items:center;">
       <div class="search-bar" style="flex:1;"><span class="search-icon">🔍</span><input type="text" placeholder="搜尋商品名稱、種類..." id="prod-search" value="${productSearch}" oninput="setProdSearch(this.value)"></div>
       <button class="topbar-btn" style="background:rgba(26,10,46,0.08);flex-shrink:0;" onclick="refreshProductsFromCloud()" title="同步雲端最新資料">🔄</button>
+      <button class="topbar-btn" style="background:rgba(26,10,46,0.08);flex-shrink:0;width:auto;padding:0 10px;font-size:12px;" onclick="openBulkImportModal()" title="批量匯入商品">📥 匯入</button>
     </div>
     ${CLOUD_ENABLED?'':'<div style="font-size:11px;color:var(--text3);margin:4px 2px 8px;">⚠ 尚未連接雲端資料庫，目前僅本機資料</div>'}
     ${cards || '<div class="empty-state"><div class="emoji">📦</div><p>無商品資料</p></div>'}
@@ -1205,6 +1218,110 @@ window.saveNewProduct=async function(){
 
   _closeModal(); toast('✅ 商品建檔成功！'+(CLOUD_ENABLED?'（已同步雲端）':'')); renderPage('products');
 }
+
+// ============ 批量匯入商品 (Excel/CSV) ============
+const IMPORT_TEMPLATE_HEADERS = ['編號','分類','商品名稱','類型','師傅','年份','庫存','價格','功效(用、分隔)','材料','特色','圖片網址'];
+
+window.downloadImportTemplate=function(){
+  const ws = XLSX.utils.aoa_to_sheet([
+    IMPORT_TEMPLATE_HEADERS,
+    ['KP001','坤平','範例商品名稱','正牌','範例師傅','2024','5','8800','招財、事業運、化解小人','銅、九寶','限量版說明文字','https://example.com/photo.jpg']
+  ]);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, '商品匯入範本');
+  XLSX.writeFile(wb, '商品匯入範本.xlsx');
+}
+
+window.openBulkImportModal=function(){
+  openModal(`
+    <div class="modal-title">批量匯入商品</div>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:14px;line-height:1.6;">
+      支援 Excel (.xlsx) 或 CSV 檔案，欄位需符合範本格式。同編號的商品會直接覆蓋更新，不會重複新增。
+    </div>
+    <button class="btn btn-secondary" style="width:100%;margin-bottom:14px;" onclick="downloadImportTemplate()">📄 下載匯入範本</button>
+    <input type="file" id="bulk-import-file" accept=".xlsx,.xls,.csv" style="margin-bottom:14px;width:100%;">
+    <div id="bulk-import-preview" style="font-size:12px;color:var(--text3);margin-bottom:10px;"></div>
+    <button class="btn btn-gold" id="bulk-import-btn" onclick="processBulkImportFile()">開始匯入</button>
+  `);
+}
+
+let _bulkImportRows = null;
+window.processBulkImportFile=async function(){
+  const fileInput = document.getElementById('bulk-import-file');
+  const file = fileInput?.files?.[0];
+  if(!file){ toast('⚠ 請先選擇檔案'); return; }
+  const btn = document.getElementById('bulk-import-btn');
+
+  if(!_bulkImportRows){
+    // 第一步：讀檔、解析、顯示預覽，等使用者確認
+    try{
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { type:'array' });
+      const sheet = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(sheet, { defval:'' });
+      const parsed = rows.map(r=>{
+        const code = String(r['編號']||'').trim();
+        const effectsRaw = String(r['功效(用、分隔)']||r['功效']||'').trim();
+        return {
+          id: 'fp_'+code,
+          code,
+          category: String(r['分類']||'其他').trim(),
+          name: String(r['商品名稱']||code).trim(),
+          type: String(r['類型']||'正牌').trim()==='陰牌'?'陰牌':'正牌',
+          master: String(r['師傅']||'').trim(),
+          year: String(r['年份']||'').trim(),
+          stock: parseInt(r['庫存'])||0,
+          price: parseInt(r['價格'])||0,
+          effects: effectsRaw ? effectsRaw.split(/[、,，]/).map(s=>s.trim()).filter(Boolean) : [],
+          material: String(r['材料']||'').trim(),
+          feature: String(r['特色']||'').trim(),
+          image: String(r['圖片網址']||'').trim(),
+        };
+      }).filter(r=>r.code);
+
+      if(!parsed.length){ document.getElementById('bulk-import-preview').innerHTML = '<span style="color:#c0392b;">⚠ 沒有讀到有效資料，請確認欄位是否符合範本格式</span>'; return; }
+
+      _bulkImportRows = parsed;
+      document.getElementById('bulk-import-preview').innerHTML = `✅ 讀取到 <b>${parsed.length}</b> 筆商品，前3筆預覽：<br>` +
+        parsed.slice(0,3).map(p=>`・${p.code} ${p.name}（$${p.price}）`).join('<br>');
+      btn.textContent = `確認匯入 ${parsed.length} 筆商品`;
+    }catch(e){
+      console.error(e);
+      document.getElementById('bulk-import-preview').innerHTML = '<span style="color:#c0392b;">⚠ 檔案解析失敗，請確認檔案格式</span>';
+    }
+    return;
+  }
+
+  // 第二步：使用者已確認，真正寫入
+  btn.disabled = true; btn.textContent = '匯入中，請稍候...';
+  try{
+    const products = getProducts();
+    for(const row of _bulkImportRows){
+      const i = products.findIndex(p=>p.id===row.id);
+      if(i>=0) products[i] = {...products[i], ...row};
+      else products.unshift(row);
+    }
+    save('products', products);
+    if(CLOUD_ENABLED){
+      const CHUNK = 50;
+      for(let i=0;i<_bulkImportRows.length;i+=CHUNK){
+        const chunk = _bulkImportRows.slice(i,i+CHUNK).map(productToRow);
+        const { error } = await sb.from('products').upsert(chunk);
+        if(error) throw error;
+      }
+    }
+    await logActivity('批量匯入商品', `匯入 ${_bulkImportRows.length} 筆`);
+    toast(`✅ 已匯入 ${_bulkImportRows.length} 筆商品`+(CLOUD_ENABLED?'（已同步雲端）':''));
+    _bulkImportRows = null;
+    _closeModal();
+    renderPage('products');
+  }catch(e){
+    console.error(e);
+    toast('⚠ 匯入過程發生錯誤，部分資料可能未寫入，請重新整理確認');
+    btn.disabled = false; btn.textContent = '重試匯入';
+  }
+}
+
 
 // ============ CUSTOMERS ============
 let customerSearch = '';
@@ -1535,12 +1652,12 @@ async function boot(){
   const { data:{ session } } = await sb.auth.getSession();
   if(!session){
     renderLoginForm();
-    document.getElementById('role-picker').style.display='flex';
+    showRolePicker();
     return;
   }
   const ok = await loadCurrentProfile(session.user);
   if(!ok){
-    document.getElementById('role-picker').style.display='flex';
+    showRolePicker();
     return;
   }
   applyRolePermissions();
