@@ -1,0 +1,1102 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#1a0a2e">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="佛牌殿">
+<title>佛牌殿 POS系統</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@400;500;600&family=Noto+Sans+TC:wght@300;400;500&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+:root {
+  --gold: #d4a843;
+  --gold-light: #e8c97a;
+  --gold-pale: #f5e9c8;
+  --deep: #1a0a2e;
+  --deep2: #2d1a4a;
+  --deep3: #3d2560;
+  --surface: #f8f5f0;
+  --surface2: #efe9de;
+  --white: #ffffff;
+  --text: #1a0a2e;
+  --text2: #6b5c7e;
+  --text3: #9a8aab;
+  --radius: 12px;
+  --radius-sm: 8px;
+  --shadow: 0 2px 12px rgba(26,10,46,0.12);
+  --shadow-lg: 0 8px 32px rgba(26,10,46,0.18);
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+html, body { height: 100%; overflow: hidden; font-family: 'Noto Sans TC', sans-serif; background: var(--deep); }
+
+#app { display: flex; flex-direction: column; height: 100vh; height: 100dvh; max-width: 480px; margin: 0 auto; background: var(--surface); position: relative; overflow: hidden; }
+
+/* TOP BAR */
+.topbar { background: var(--deep); padding: 44px 20px 16px; flex-shrink: 0; }
+.topbar-inner { display: flex; align-items: center; justify-content: space-between; }
+.topbar-title { font-family: 'Noto Serif TC', serif; font-size: 18px; color: var(--gold-light); font-weight: 600; letter-spacing: 1px; }
+.topbar-sub { font-size: 11px; color: var(--text3); margin-top: 2px; }
+.topbar-btn { width: 36px; height: 36px; border-radius: 50%; background: rgba(255,255,255,0.08); border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+
+/* TAB BAR */
+.tabbar { background: var(--deep); display: flex; overflow-x: auto; padding: 0 12px 14px; gap: 6px; flex-shrink: 0; scrollbar-width: none; }
+.tabbar::-webkit-scrollbar { display: none; }
+.tab { flex-shrink: 0; padding: 6px 14px; border-radius: 20px; border: none; font-size: 12px; font-family: 'Noto Sans TC', sans-serif; cursor: pointer; transition: all 0.2s; white-space: nowrap; }
+.tab.active { background: var(--gold); color: var(--deep); font-weight: 500; }
+.tab:not(.active) { background: rgba(255,255,255,0.07); color: var(--text3); }
+
+/* SCROLL CONTENT */
+.content { flex: 1; overflow-y: auto; padding: 16px; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+.content::-webkit-scrollbar { display: none; }
+
+/* PAGES */
+.page { display: none; }
+.page.active { display: block; animation: fadeIn 0.2s ease; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+
+/* SECTION TITLE */
+.sec { font-size: 11px; font-weight: 500; color: var(--text3); letter-spacing: 1px; text-transform: uppercase; margin: 16px 0 10px; }
+.sec:first-child { margin-top: 0; }
+
+/* STAT CARDS */
+.stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 4px; }
+.stat-card { background: var(--white); border-radius: var(--radius); padding: 14px; border: 1px solid rgba(26,10,46,0.06); }
+.stat-card.accent { background: var(--deep); }
+.stat-label { font-size: 11px; color: var(--text3); margin-bottom: 6px; }
+.stat-card.accent .stat-label { color: rgba(255,255,255,0.5); }
+.stat-val { font-size: 22px; font-weight: 500; color: var(--text); font-family: 'Noto Serif TC', serif; }
+.stat-card.accent .stat-val { color: var(--gold-light); }
+.stat-tag { font-size: 11px; margin-top: 4px; }
+.tag-up { color: #2d7a4a; }
+.tag-down { color: #c0392b; }
+.tag-warn { color: #d4870a; }
+
+/* ORDER CARD */
+.order-card { background: var(--white); border-radius: var(--radius); padding: 14px; margin-bottom: 10px; border: 1px solid rgba(26,10,46,0.06); cursor: pointer; transition: all 0.15s; }
+.order-card:active { transform: scale(0.98); }
+.order-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.order-name { font-size: 15px; font-weight: 500; color: var(--text); }
+.order-id { font-size: 11px; color: var(--text3); margin-top: 1px; }
+.order-info { font-size: 12px; color: var(--text2); margin-bottom: 6px; line-height: 1.6; }
+.order-items-text { font-size: 13px; color: var(--text); }
+.alert-pill { display: inline-flex; align-items: center; gap: 4px; background: #fff0eb; color: #c0392b; font-size: 11px; padding: 4px 8px; border-radius: 6px; margin-top: 8px; }
+
+/* BADGES */
+.badge { font-size: 11px; padding: 4px 10px; border-radius: 20px; font-weight: 500; white-space: nowrap; }
+.b-ship { background: #e8f4fb; color: #1a6fa8; }
+.b-pick { background: #fef3e2; color: #a06010; }
+.b-done { background: #e8f5e9; color: #2d7a4a; }
+.b-chain { background: #fce4ec; color: #a0294a; }
+.b-cancel { background: #fce4e4; color: #c0392b; }
+.b-return { background: #f3e8ff; color: #6b35a0; }
+
+/* FILTER CHIPS */
+.chip-row { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 4px; }
+.chip { padding: 5px 12px; border-radius: 20px; font-size: 12px; border: 1px solid rgba(26,10,46,0.15); background: var(--white); color: var(--text2); cursor: pointer; transition: all 0.15s; }
+.chip.on { background: var(--deep); color: var(--gold-light); border-color: var(--deep); }
+
+/* FORMS */
+.form-block { margin-bottom: 14px; }
+.form-label { font-size: 12px; color: var(--text2); margin-bottom: 5px; display: block; font-weight: 500; }
+.form-input, .form-select, .form-textarea { width: 100%; padding: 11px 14px; border: 1px solid rgba(26,10,46,0.15); border-radius: var(--radius-sm); font-size: 14px; font-family: 'Noto Sans TC', sans-serif; background: var(--white); color: var(--text); outline: none; transition: border 0.2s; -webkit-appearance: none; appearance: none; }
+.form-input:focus, .form-select:focus, .form-textarea:focus { border-color: var(--gold); }
+.form-textarea { resize: none; }
+.form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+
+/* BUTTONS */
+.btn { padding: 13px 20px; border-radius: var(--radius); font-size: 15px; font-family: 'Noto Sans TC', sans-serif; font-weight: 500; cursor: pointer; border: none; transition: all 0.15s; }
+.btn:active { transform: scale(0.97); }
+.btn-primary { background: var(--deep); color: var(--gold-light); width: 100%; margin-top: 8px; }
+.btn-secondary { background: var(--surface2); color: var(--text); }
+.btn-gold { background: var(--gold); color: var(--deep); width: 100%; margin-top: 8px; }
+.btn-sm { padding: 7px 14px; font-size: 13px; border-radius: var(--radius-sm); }
+
+/* PRODUCT CARD */
+.product-card { background: var(--white); border-radius: var(--radius); padding: 14px; margin-bottom: 10px; border: 1px solid rgba(26,10,46,0.06); display: flex; gap: 12px; cursor: pointer; transition: all 0.15s; }
+.product-card:active { transform: scale(0.98); }
+.product-img { width: 58px; height: 58px; border-radius: 10px; background: linear-gradient(135deg, var(--deep), var(--deep3)); flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 26px; overflow: hidden; }
+.product-img img { width: 100%; height: 100%; object-fit: cover; }
+.product-name { font-size: 14px; font-weight: 500; color: var(--text); margin-bottom: 2px; }
+.product-meta { font-size: 12px; color: var(--text2); margin-bottom: 6px; }
+.product-tags { display: flex; flex-wrap: wrap; gap: 4px; }
+.ptag { font-size: 11px; padding: 2px 7px; border-radius: 4px; }
+.ptag-effect { background: #ede8f8; color: #4a2580; }
+.ptag-pos { background: #e8f5e9; color: #1a5a2e; }
+.ptag-neg { background: #1a0a2e; color: #e8c97a; }
+.price-tag { font-size: 14px; font-weight: 500; color: var(--deep); margin-top: 6px; }
+.stock-tag { font-size: 12px; color: var(--text3); }
+.stock-low { color: #c0392b; font-weight: 500; }
+
+/* CUSTOMER CARD */
+.customer-card { background: var(--white); border-radius: var(--radius); padding: 14px; margin-bottom: 10px; border: 1px solid rgba(26,10,46,0.06); cursor: pointer; }
+.customer-avatar { width: 40px; height: 40px; border-radius: 50%; background: var(--deep2); color: var(--gold-light); display: flex; align-items: center; justify-content: center; font-size: 15px; font-family: 'Noto Serif TC', serif; flex-shrink: 0; }
+.customer-stat { text-align: center; }
+.customer-stat-val { font-size: 18px; font-weight: 500; color: var(--text); font-family: 'Noto Serif TC', serif; }
+.customer-stat-label { font-size: 10px; color: var(--text3); margin-top: 2px; }
+
+/* CHART */
+.chart-wrap { background: var(--white); border-radius: var(--radius); padding: 16px; margin-bottom: 10px; border: 1px solid rgba(26,10,46,0.06); }
+.bars { display: flex; align-items: flex-end; gap: 8px; height: 90px; }
+.bar-col { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.bar { width: 100%; border-radius: 5px 5px 0 0; background: var(--surface2); min-height: 4px; transition: height 0.6s; }
+.bar.curr { background: var(--gold); }
+.bar-lbl { font-size: 10px; color: var(--text3); }
+.bar-val-t { font-size: 10px; font-weight: 500; color: var(--text2); }
+.bar-val-t.curr { color: var(--gold); }
+
+/* RANKING */
+.rank-item { display: flex; align-items: center; gap: 12px; padding: 11px 0; border-bottom: 1px solid rgba(26,10,46,0.06); }
+.rank-num { width: 26px; height: 26px; border-radius: 50%; background: var(--surface2); display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 500; flex-shrink: 0; }
+.rank-num.r1 { background: var(--gold); color: var(--deep); }
+.rank-name { flex: 1; font-size: 13px; color: var(--text); }
+.rank-sales { font-size: 13px; font-weight: 500; color: var(--text); }
+
+/* SOURCE PIE LEGEND */
+.source-legend { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.source-item { display: flex; align-items: center; gap: 8px; }
+.source-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+.source-name { font-size: 12px; color: var(--text2); flex: 1; }
+.source-pct { font-size: 12px; font-weight: 500; color: var(--text); }
+
+/* MODAL OVERLAY */
+.modal-overlay { position: absolute; inset: 0; background: rgba(10,4,20,0.6); z-index: 100; display: flex; flex-direction: column; justify-content: flex-end; opacity: 0; pointer-events: none; transition: opacity 0.25s; }
+.modal-overlay.open { opacity: 1; pointer-events: all; }
+.modal-sheet { background: var(--white); border-radius: 20px 20px 0 0; padding: 20px; max-height: 88vh; overflow-y: auto; transform: translateY(20px); transition: transform 0.25s; }
+.modal-overlay.open .modal-sheet { transform: translateY(0); }
+.modal-handle { width: 36px; height: 4px; border-radius: 2px; background: var(--surface2); margin: 0 auto 16px; }
+.modal-title { font-family: 'Noto Serif TC', serif; font-size: 17px; font-weight: 600; color: var(--text); margin-bottom: 16px; }
+
+/* TOAST */
+.toast { position: absolute; top: 100px; left: 50%; transform: translateX(-50%) translateY(-20px); background: var(--deep); color: var(--gold-light); padding: 10px 20px; border-radius: 20px; font-size: 13px; opacity: 0; pointer-events: none; transition: all 0.3s; z-index: 200; white-space: nowrap; }
+.toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+/* SEARCH BAR */
+.search-bar { position: relative; margin-bottom: 14px; }
+.search-bar input { width: 100%; padding: 10px 14px 10px 38px; border: 1px solid rgba(26,10,46,0.15); border-radius: 10px; font-size: 14px; font-family: 'Noto Sans TC', sans-serif; background: var(--white); color: var(--text); outline: none; }
+.search-bar input:focus { border-color: var(--gold); }
+.search-icon { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); font-size: 15px; pointer-events: none; }
+
+/* FAB */
+.fab { position: absolute; bottom: 80px; right: 16px; width: 52px; height: 52px; border-radius: 50%; background: var(--gold); border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 24px; box-shadow: 0 4px 16px rgba(212,168,67,0.4); z-index: 50; transition: all 0.2s; }
+.fab:active { transform: scale(0.92); }
+
+/* DIVIDER */
+.divider { height: 1px; background: rgba(26,10,46,0.08); margin: 12px 0; }
+
+/* EMPTY STATE */
+.empty-state { text-align: center; padding: 40px 20px; color: var(--text3); }
+.empty-state .emoji { font-size: 36px; margin-bottom: 12px; }
+.empty-state p { font-size: 14px; }
+
+/* PRODUCT DETAIL ROWS */
+.detail-row { display: flex; padding: 9px 0; border-bottom: 1px solid rgba(26,10,46,0.06); }
+.detail-key { font-size: 13px; color: var(--text3); width: 90px; flex-shrink: 0; }
+.detail-val { font-size: 13px; color: var(--text); flex: 1; }
+
+/* PHOTO UPLOAD */
+.photo-upload { width: 80px; height: 80px; border-radius: 10px; border: 1.5px dashed rgba(26,10,46,0.25); display: flex; align-items: center; justify-content: center; cursor: pointer; font-size: 24px; background: var(--surface); }
+.photo-preview { width: 80px; height: 80px; border-radius: 10px; object-fit: cover; cursor: pointer; }
+
+/* STATUS FILTER ROW */
+.status-row { display: flex; gap: 6px; overflow-x: auto; margin-bottom: 14px; padding-bottom: 2px; scrollbar-width: none; }
+.status-row::-webkit-scrollbar { display: none; }
+
+/* SWITCH */
+.switch { display: flex; background: var(--surface2); border-radius: 8px; padding: 3px; gap: 3px; }
+.switch-opt { flex: 1; padding: 6px; border-radius: 6px; border: none; font-size: 12px; font-family: 'Noto Sans TC', sans-serif; cursor: pointer; background: none; color: var(--text2); transition: all 0.15s; text-align: center; }
+.switch-opt.on { background: var(--deep); color: var(--gold-light); font-weight: 500; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="topbar">
+    <div class="topbar-inner">
+      <div>
+        <div class="topbar-title">🏮 佛牌殿管理系統</div>
+        <div class="topbar-sub" id="topbar-date">載入中...</div>
+      </div>
+      <button class="topbar-btn" onclick="showNotif()" style="color:#e8c97a;font-size:18px;">🔔</button>
+    </div>
+  </div>
+  
+  <div class="tabbar" id="tabbar">
+    <button class="tab active" data-page="home">首頁</button>
+    <button class="tab" data-page="orders">訂單</button>
+    <button class="tab" data-page="new-order">建立訂單</button>
+    <button class="tab" data-page="filter">商品篩選</button>
+    <button class="tab" data-page="products">商品庫</button>
+    <button class="tab" data-page="customers">客戶</button>
+    <button class="tab" data-page="report">報表</button>
+  </div>
+  
+  <div class="content" id="content">
+    <!-- HOME -->
+    <div class="page active" id="page-home"></div>
+    <!-- ORDERS -->
+    <div class="page" id="page-orders"></div>
+    <!-- NEW ORDER -->
+    <div class="page" id="page-new-order"></div>
+    <!-- FILTER -->
+    <div class="page" id="page-filter"></div>
+    <!-- PRODUCTS -->
+    <div class="page" id="page-products"></div>
+    <!-- CUSTOMERS -->
+    <div class="page" id="page-customers"></div>
+    <!-- REPORT -->
+    <div class="page" id="page-report"></div>
+  </div>
+
+  <!-- MODAL -->
+  <div class="modal-overlay" id="modal" onclick="closeModal(event)">
+    <div class="modal-sheet" id="modal-sheet">
+      <div class="modal-handle"></div>
+      <div id="modal-content"></div>
+    </div>
+  </div>
+  
+  <div class="toast" id="toast"></div>
+</div>
+
+<script>
+// ============ DATA ============
+const CATS = ['坤平將軍','坤昌','崇迪佛','佛祖','藥師佛','師傅自身','巴拉吉','人緣鳥','姐姐牌','路過','天靈蓋','狐仙','器官','女王佛','五古佛','伊霸女神','魅力之神','幽魂娜娜','大地之母','拉胡天神','象神','四面神','蝴蝶牌','芭蕉精','招財女神','澤鍍金','必打掩面佛','外星人佛牌','陶威素灣','財龜','座山佛','符館','古曼童','供奉尊','魯士','二哥豐','戒指','山神','愛情和合','帕嬰','鬼財神','馬食能','五眼四耳','周邊聖物','充電寶','希瓦利','天神','大鵬金翅鳥','貓路過','樹精','魂帕傭','人緣油','南平女神','烏巴庫','哈努曼','手鍊','飛頭降','人魚','蛇精','路翁','符管','其他'];
+const EFFECTS = ['招財','人緣','桃花','事業運','愛情','保護','化解小人','健康','逢凶化吉','財運','好運','催旺','開運','增加魅力','夫妻感情','考試順利','出行平安','生意興隆','升官','貴人運'];
+const MASTERS = ['月亮師傅','龍婆崇','阿贊素威','帕甘寺','龍婆坤','龍婆本','大城府寺廟','清邁古廟','曼谷四面佛','阿贊奴','龍婆帕','其他'];
+const STATUS_LIST = ['全部','待寄出','待選鍊子','待自取','已寄出','取消','退貨'];
+const STATUS_BADGE = { '待寄出':'b-ship','待選鍊子':'b-chain','待自取':'b-pick','已寄出':'b-done','取消':'b-cancel','退貨':'b-return' };
+const SHIP_LIST = ['門市自取','711','黑貓'];
+const SOURCE_LIST = ['門市','社群','LINE官方','蝦皮'];
+const GIFT_LIST = ['佛牌鍊（標準）','佛牌鍊（金色）','佛牌鍊（銀色）','佛牌鍊（黑色）','不附贈'];
+
+// ============ 雲端商品資料庫設定 (Supabase) ============
+// 建好 Supabase 專案、跑完 supabase-schema.sql 後，把下面三個值換成你自己的。
+// SUPABASE_URL / SUPABASE_ANON_KEY 在 Supabase 後台「Project Settings > API」可以找到
+// TENANT_ID 是跑完 schema.sql 後查詢 tenants 表格拿到的佛牌殿 id
+const SUPABASE_URL = 'https://roxwskdpnsctoaflcomt.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJveHdza2RwbnNjdG9hZmxjb210Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg0Mjk3MDAsImV4cCI6MjEwNDAwNTcwMH0.CflNz8IOx85zo-apNjJkUBISqXYGVpu5-LJ5DDBPyxw';
+const TENANT_ID = 'dbf9fcd3-110a-4dde-8ef9-40c2f89967a9';
+const CLOUD_ENABLED = !SUPABASE_URL.startsWith('YOUR_') && !SUPABASE_ANON_KEY.startsWith('YOUR_') && !TENANT_ID.startsWith('YOUR_');
+const sb = CLOUD_ENABLED ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
+
+function load(k) { try { const r=localStorage.getItem('bpd_'+k); return r?JSON.parse(r):null; } catch(e){return null;} }
+function save(k,d) { try { localStorage.setItem('bpd_'+k, JSON.stringify(d)); } catch(e){} }
+
+// 把 Supabase 資料表格式跟系統原本的商品物件格式互轉
+function rowToProduct(r){ return { id:r.id, code:r.code, category:r.category, name:r.name, type:r.type, master:r.master, year:r.year, stock:r.stock, price:r.price, effects:r.effects||[], material:r.material, feature:r.feature, image:r.image }; }
+function productToRow(p){ return { id:p.id, tenant_id:TENANT_ID, code:p.code, category:p.category, name:p.name, type:p.type, master:p.master, year:String(p.year), stock:p.stock, price:p.price, effects:p.effects, material:p.material, feature:p.feature, image:p.image, updated_by:'' }; }
+
+// 開機時從雲端把最新商品資料抓下來，寫進本機快取（localStorage），
+// 這樣所有頁面原本同步讀取 getProducts() 的寫法都不用改，
+// 只要每次開啟 App / 下拉刷新時都會拿到雲端最新的庫存與商品清單。
+async function syncProductsFromCloud(){
+  if(!CLOUD_ENABLED) return false;
+  try{
+    const { data, error } = await sb.from('products').select('*').eq('tenant_id', TENANT_ID).order('updated_at',{ascending:false});
+    if(error) throw error;
+    save('products', data.map(rowToProduct));
+    return true;
+  }catch(e){ console.error('雲端商品同步失敗，改用本機資料', e); return false; }
+}
+
+// 商品新增/庫存更新時，寫回雲端（其他人下次開啟或下拉刷新就會看到）
+async function pushProductToCloud(p){
+  if(!CLOUD_ENABLED) return;
+  try{ const { error } = await sb.from('products').upsert(productToRow(p)); if(error) throw error; }
+  catch(e){ console.error('寫入雲端失敗，稍後會在下次同步時補上', e); toast('⚠ 雲端同步失敗，請檢查網路'); }
+}
+function initDB() {
+  if(!load('products')) save('products',[
+    {id:'KP2024001',code:'KP2024-001',category:'坤平將軍',name:'坤平將軍·月亮師傅特製版',type:'正牌',master:'月亮師傅',year:'2024',stock:2,price:8800,effects:['招財','事業運','化解小人'],material:'銅、九寶',feature:'限量版，師傅親自加持',image:''},
+    {id:'KM2023012',code:'KM2023-012',category:'古曼童',name:'古曼童·龍婆崇師傅',type:'陰牌',master:'龍婆崇',year:'2023',stock:5,price:5500,effects:['人緣','財運','桃花'],material:'木雕、金箔',feature:'老師傅手工雕刻',image:''},
+    {id:'XS2024003',code:'XS2024-003',category:'象神',name:'象神·帕甘寺',type:'正牌',master:'帕甘寺',year:'2024',stock:1,price:3800,effects:['桃花','人緣','好運'],material:'黃銅',feature:'帕甘寺開光',image:''},
+    {id:'CD2024008',code:'CD2024-008',category:'崇迪佛',name:'崇迪佛·大城府',type:'正牌',master:'大城府寺廟',year:'2024',stock:3,price:12000,effects:['招財','保護','事業運'],material:'純銀',feature:'大城府百年寺廟',image:''},
+    {id:'GM2024015',code:'GM2024-015',category:'古曼童',name:'帕嬰·七色布',type:'陰牌',master:'阿贊素威',year:'2024',stock:8,price:2800,effects:['人緣','桃花','財運'],material:'布料、頭髮',feature:'七色布製作',image:''},
+  ]);
+  if(!load('orders')) save('orders',[
+    {id:'ORD2025089',date:'2025-01-15',customer:'王小明',phone:'0912-345-678',shipping:'711',shippingDetail:'全家信義店',items:[{productId:'KP2024001',qty:1}],gift:'',staff:'小美',source:'社群',status:'待寄出',note:''},
+    {id:'ORD2025088',date:'2025-01-14',customer:'陳志豪',phone:'0977-654-321',shipping:'黑貓',shippingDetail:'台北市信義區信義路五段7號',items:[{productId:'KM2023012',qty:2}],gift:'佛牌鍊（標準）×2',staff:'阿傑',source:'社群',status:'已寄出',note:''},
+    {id:'ORD2025087',date:'2025-01-13',customer:'林佳蓉',phone:'0988-111-222',shipping:'門市自取',shippingDetail:'',items:[{productId:'CD2024008',qty:1}],gift:'佛牌鍊（金色）×1',staff:'店長',source:'LINE官方',status:'待自取',note:'客戶說週末來取'},
+    {id:'ORD2025086',date:'2025-01-12',customer:'張小芳',phone:'0933-888-777',shipping:'711',shippingDetail:'7-11 南港站前店',items:[{productId:'GM2024015',qty:3}],gift:'',staff:'小美',source:'蝦皮',status:'待選鍊子',note:'客戶要三色鍊各一'},
+  ]);
+  if(!load('customers')) save('customers',[
+    {id:'C001',name:'王小明',phone:'0912-345-678',shipping:'711',shippingDetail:'全家信義店'},
+    {id:'C002',name:'陳志豪',phone:'0977-654-321',shipping:'黑貓',shippingDetail:'台北市信義區信義路五段7號'},
+    {id:'C003',name:'林佳蓉',phone:'0988-111-222',shipping:'門市自取',shippingDetail:''},
+  ]);
+  if(!load('staff')) save('staff',['店長','小美','阿傑','新員工A']);
+  if(!load('cats')) save('cats',[...CATS]);
+  if(!load('effects')) save('effects',[...EFFECTS]);
+  if(!load('masters')) save('masters',[...MASTERS]);
+}
+
+function getProducts(){ return load('products')||[]; }
+function getOrders(){ return load('orders')||[]; }
+function getCustomers(){ return load('customers')||[]; }
+function getStaff(){ return load('staff')||[]; }
+
+function getProductById(id){ return getProducts().find(p=>p.id===id)||null; }
+function getProductName(id){ const p=getProductById(id); return p?p.name:id; }
+
+function genOrderId(){
+  const orders=getOrders();
+  const n = orders.length ? parseInt(orders[0].id.replace('ORD',''))+1 : 2025001;
+  return 'ORD'+String(n).padStart(7,'0');
+}
+
+// ============ UI HELPERS ============
+function toast(msg){ const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),2200); }
+
+function openModal(html){ 
+  document.getElementById('modal-content').innerHTML=html; 
+  document.getElementById('modal').classList.add('open'); 
+}
+function closeModal(e){ 
+  if(e && e.target!==document.getElementById('modal')) return;
+  document.getElementById('modal').classList.remove('open'); 
+}
+window._closeModal=function(){ document.getElementById('modal').classList.remove('open'); }
+
+function chip(label, key, arr, onToggle){
+  return `<span class="chip${arr.includes(label)?' on':''}" onclick="${onToggle}('${label.replace(/'/g,"\\'")}',this)">${label}</span>`;
+}
+
+function selectModal(title, options, onSelect, allowNew=false){
+  const opts = options.map(o=>`<div class="order-card" style="padding:12px 14px;margin-bottom:6px;" onclick="_selectModalItem('${o.replace(/'/g,"\\'")}','${onSelect}')">${o}</div>`).join('');
+  const newBtn = allowNew ? `<button class="btn btn-secondary btn-sm" style="width:100%;margin-top:8px;" onclick="_addNewOption('${onSelect}')">+ 新增選項</button>` : '';
+  openModal(`<div class="modal-title">${title}</div>${opts}${newBtn}`);
+}
+window._selectModalItem=function(val, fn){ window._closeModal(); if(window[fn]) window[fn](val); }
+window._addNewOption=function(fn){ const v=prompt('輸入新選項：'); if(v&&v.trim()) { if(window[fn]) window[fn](v.trim()); } }
+
+// ============ NAVIGATION ============
+let currentPage = 'home';
+document.getElementById('tabbar').addEventListener('click', e=>{
+  const btn = e.target.closest('.tab');
+  if(!btn) return;
+  const page = btn.dataset.page;
+  navigateTo(page);
+});
+
+function navigateTo(page){
+  document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active', t.dataset.page===page));
+  document.querySelectorAll('.page').forEach(p=>p.classList.toggle('active', p.id==='page-'+page));
+  currentPage = page;
+  document.getElementById('content').scrollTop = 0;
+  renderPage(page);
+}
+
+function renderPage(page){
+  const el = document.getElementById('page-'+page);
+  if(!el) return;
+  const renderers = { home: renderHome, orders: renderOrders, 'new-order': renderNewOrder, filter: renderFilter, products: renderProducts, customers: renderCustomers, report: renderReport };
+  if(renderers[page]) el.innerHTML = renderers[page]();
+  bindPageEvents(page);
+}
+
+// ============ HOME ============
+function renderHome(){
+  const orders = getOrders();
+  const todayShip = orders.filter(o=>o.status==='待寄出'||o.status==='待選鍊子');
+  const thisMonth = orders.filter(o=>o.date.startsWith('2025-01'));
+  const totalSales = thisMonth.reduce((sum,o)=>{
+    return sum + o.items.reduce((s,it)=>{ const p=getProductById(it.productId); return s+(p?p.price*it.qty:0); },0);
+  }, 0);
+  
+  const rankMap = {};
+  thisMonth.forEach(o=>o.items.forEach(it=>{ const p=getProductById(it.productId); if(p){ rankMap[p.category]=(rankMap[p.category]||0)+p.price*it.qty; } }));
+  const ranking = Object.entries(rankMap).sort((a,b)=>b[1]-a[1]).slice(0,5);
+  
+  const rankHTML = ranking.map((r,i)=>`
+    <div class="rank-item">
+      <div class="rank-num${i===0?' r1':''}">${i+1}</div>
+      <div class="rank-name">${r[0]}</div>
+      <div class="rank-sales">$${r[1].toLocaleString()}</div>
+    </div>`).join('');
+  
+  const shipCards = todayShip.slice(0,3).map(o=>{
+    const items = o.items.map(it=>`${getProductName(it.productId)} ×${it.qty}`).join('、');
+    const noGift = o.items.some(it=>{ const p=getProductById(it.productId); return p&&p.category!=='手鍊'&&p.category!=='符管'; }) && !o.gift;
+    return `<div class="order-card" onclick="openOrderDetail('${o.id}')">
+      <div class="order-head">
+        <div><div class="order-name">${o.customer}</div><div class="order-id">#${o.id}</div></div>
+        <span class="badge ${STATUS_BADGE[o.status]||'b-ship'}">${o.status}</span>
+      </div>
+      <div class="order-info">${o.shipping==='門市自取'?'門市自取':o.shipping+' · '+o.shippingDetail} · ${o.phone}</div>
+      <div class="order-items-text">${items}</div>
+      ${noGift?'<div class="alert-pill">⚠ 未填佛牌鍊，請確認</div>':''}
+    </div>`;
+  }).join('');
+
+  return `
+    <div class="stat-grid">
+      <div class="stat-card accent">
+        <div class="stat-label">本月銷售額</div>
+        <div class="stat-val">$${totalSales.toLocaleString()}</div>
+        <div class="stat-tag tag-up">↑ 持續成長中</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">今日待出貨</div>
+        <div class="stat-val" style="color:#c0392b;">${todayShip.length} 筆</div>
+        <div class="stat-tag tag-warn">需處理</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">本月訂單數</div>
+        <div class="stat-val">${thisMonth.length}</div>
+        <div class="stat-tag tag-up">筆訂單</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">待選鍊子</div>
+        <div class="stat-val" style="color:#a06010;">${orders.filter(o=>o.status==='待選鍊子').length} 筆</div>
+        <div class="stat-tag tag-warn">待確認</div>
+      </div>
+    </div>
+    <div class="sec">今日待出貨</div>
+    ${shipCards || '<div class="empty-state"><div class="emoji">✅</div><p>今日無待出貨訂單</p></div>'}
+    <div class="sec" style="margin-top:20px;">本月銷售排行</div>
+    <div style="background:var(--white);border-radius:var(--radius);padding:4px 14px;border:1px solid rgba(26,10,46,0.06);">
+      ${rankHTML || '<div style="padding:16px;text-align:center;color:var(--text3);font-size:13px;">暫無資料</div>'}
+    </div>`;
+}
+
+// ============ ORDERS ============
+let orderFilter = '全部';
+let orderSearch = '';
+function renderOrders(){
+  const orders = getOrders();
+  let filtered = orders;
+  if(orderFilter!=='全部') filtered = filtered.filter(o=>o.status===orderFilter);
+  if(orderSearch) filtered = filtered.filter(o=>o.customer.includes(orderSearch)||o.id.includes(orderSearch)||o.phone.includes(orderSearch));
+  
+  const statusBtns = STATUS_LIST.map(s=>`<span class="chip${orderFilter===s?' on':''}" onclick="setOrderFilter('${s}')" style="white-space:nowrap;">${s}</span>`).join('');
+  
+  const cards = filtered.map(o=>{
+    const items = o.items.map(it=>`${getProductName(it.productId)} ×${it.qty}`).join('、');
+    const noGift = o.items.some(it=>{ const p=getProductById(it.productId); return p&&!['手鍊','符管','周邊聖物'].includes(p.category); }) && !o.gift;
+    return `<div class="order-card" onclick="openOrderDetail('${o.id}')">
+      <div class="order-head">
+        <div><div class="order-name">${o.customer}</div><div class="order-id">#${o.id} · ${o.date}</div></div>
+        <span class="badge ${STATUS_BADGE[o.status]||'b-ship'}">${o.status}</span>
+      </div>
+      <div class="order-info">${o.shipping==='門市自取'?'門市自取':o.shipping+' · '+o.shippingDetail}<br>接單：${o.staff} · 來源：${o.source}</div>
+      <div class="order-items-text">${items}${o.gift?' ｜ 贈品：'+o.gift:''}</div>
+      ${noGift?'<div class="alert-pill">⚠ 未填佛牌鍊，請確認</div>':''}
+      ${o.note?`<div style="font-size:12px;color:var(--text3);margin-top:6px;">備註：${o.note}</div>`:''}
+    </div>`;
+  }).join('');
+
+  return `
+    <div class="search-bar"><span class="search-icon">🔍</span><input type="text" placeholder="搜尋訂單、客戶、電話..." id="order-search" value="${orderSearch}" oninput="setOrderSearch(this.value)"></div>
+    <div class="chip-row" style="margin-bottom:14px;">${statusBtns}</div>
+    ${cards || '<div class="empty-state"><div class="emoji">📋</div><p>無符合訂單</p></div>'}
+    <div style="height:80px;"></div>`;
+}
+
+window.setOrderFilter=function(s){ orderFilter=s; renderPage('orders'); }
+window.setOrderSearch=function(v){ orderSearch=v; renderPage('orders'); }
+
+window.openOrderDetail=function(id){
+  const o = getOrders().find(x=>x.id===id);
+  if(!o) return;
+  const items = o.items.map(it=>{ const p=getProductById(it.productId); return `${p?p.name:it.productId} ×${it.qty}${p?' ($'+p.price.toLocaleString()+')':''}`; }).join('<br>');
+  const statusOpts = ['待寄出','待選鍊子','待自取','已寄出','取消','退貨'].map(s=>`<option${o.status===s?' selected':''}>${s}</option>`).join('');
+  openModal(`
+    <div class="modal-title">訂單詳情 #${o.id}</div>
+    <div class="detail-row"><span class="detail-key">訂購人</span><span class="detail-val">${o.customer}</span></div>
+    <div class="detail-row"><span class="detail-key">電話</span><span class="detail-val">${o.phone}</span></div>
+    <div class="detail-row"><span class="detail-key">寄送方式</span><span class="detail-val">${o.shipping==='門市自取'?'門市自取':o.shipping+' · '+o.shippingDetail}</span></div>
+    <div class="detail-row"><span class="detail-key">訂購商品</span><span class="detail-val">${items}</span></div>
+    <div class="detail-row"><span class="detail-key">贈品</span><span class="detail-val">${o.gift||'—'}</span></div>
+    <div class="detail-row"><span class="detail-key">接單人員</span><span class="detail-val">${o.staff}</span></div>
+    <div class="detail-row"><span class="detail-key">客戶來源</span><span class="detail-val">${o.source}</span></div>
+    <div class="detail-row"><span class="detail-key">備註</span><span class="detail-val">${o.note||'—'}</span></div>
+    <div style="margin-top:16px;">
+      <div class="form-label">更新進度</div>
+      <select class="form-select" id="status-sel">${statusOpts}</select>
+    </div>
+    <button class="btn btn-primary" onclick="updateOrderStatus('${id}')">更新訂單狀態</button>
+    <button class="btn btn-secondary" style="width:100%;margin-top:8px;" onclick="_closeModal()">關閉</button>
+  `);
+}
+
+window.updateOrderStatus=function(id){
+  const sel = document.getElementById('status-sel');
+  if(!sel) return;
+  const orders = getOrders();
+  const i = orders.findIndex(o=>o.id===id);
+  if(i>=0){ orders[i].status=sel.value; save('orders',orders); }
+  _closeModal();
+  toast('✅ 訂單狀態已更新');
+  renderPage('orders');
+  renderPage('home');
+}
+
+// ============ NEW ORDER ============
+let newOrder = { customer:'', phone:'', shipping:'', shippingDetail:'', items:[], gift:'', staff:'', source:'', note:'' };
+let selectedProducts = [];
+
+function renderNewOrder(){
+  const staff = getStaff();
+  const staffOpts = staff.map(s=>`<option>${s}</option>`).join('');
+  const srcChips = SOURCE_LIST.map(s=>`<span class="chip${newOrder.source===s?' on':''}" onclick="setOrderField('source','${s}',this)">${s}</span>`).join('');
+  const shipOpts = SHIP_LIST.map(s=>`<option${newOrder.shipping===s?' selected':''}>${s}</option>`).join('');
+  const giftOpts = ['','佛牌鍊（標準）','佛牌鍊（金色）','佛牌鍊（銀色）','佛牌鍊（黑色）','不附贈'].map(g=>`<option${newOrder.gift===g?' selected':''}>${g}</option>`).join('');
+  
+  const itemsList = selectedProducts.map((sp,i)=>`
+    <div style="display:flex;align-items:center;gap:8px;padding:8px;background:var(--surface);border-radius:8px;margin-bottom:6px;">
+      <div style="flex:1;font-size:13px;">${sp.name}</div>
+      <div style="display:flex;align-items:center;gap:6px;">
+        <button onclick="changeQty(${i},-1)" style="width:28px;height:28px;border-radius:50%;border:1px solid rgba(26,10,46,0.2);background:var(--white);cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center;">−</button>
+        <span style="font-size:14px;font-weight:500;min-width:20px;text-align:center;">${sp.qty}</span>
+        <button onclick="changeQty(${i},1)" style="width:28px;height:28px;border-radius:50%;border:1px solid rgba(26,10,46,0.2);background:var(--white);cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center;">＋</button>
+        <button onclick="removeItem(${i})" style="width:28px;height:28px;border-radius:50%;border:none;background:#fce4e4;color:#c0392b;cursor:pointer;font-size:14px;">✕</button>
+      </div>
+    </div>`).join('');
+
+  return `
+    <div class="form-block">
+      <label class="form-label">訂購人姓名</label>
+      <input class="form-input" id="no-customer" type="text" value="${newOrder.customer}" placeholder="輸入或搜尋客戶..." oninput="searchCustomer(this.value)">
+      <div id="customer-suggestions"></div>
+    </div>
+    <div class="form-block">
+      <label class="form-label">訂購人電話</label>
+      <input class="form-input" id="no-phone" type="tel" value="${newOrder.phone}" placeholder="09XX-XXX-XXX">
+    </div>
+    <div class="form-block">
+      <label class="form-label">寄送方式</label>
+      <select class="form-select" id="no-shipping" onchange="onShipChange(this.value)">${shipOpts}</select>
+    </div>
+    <div class="form-block" id="ship-detail-block" style="${newOrder.shipping==='門市自取'||!newOrder.shipping?'display:none':''}">
+      <label class="form-label" id="ship-detail-label">${newOrder.shipping==='711'?'711門市名稱':'宅配地址'}</label>
+      <input class="form-input" id="no-ship-detail" type="text" value="${newOrder.shippingDetail}" placeholder="${newOrder.shipping==='711'?'例：全家信義店':'完整收件地址'}">
+    </div>
+    <div class="form-block">
+      <label class="form-label">訂購商品</label>
+      ${itemsList}
+      <button class="btn btn-secondary btn-sm" style="width:100%;margin-top:6px;" onclick="openProductPicker()">＋ 新增商品</button>
+    </div>
+    <div class="form-block">
+      <label class="form-label">贈品（佛牌鍊）</label>
+      <select class="form-select" id="no-gift">${giftOpts}</select>
+    </div>
+    <div class="form-block">
+      <label class="form-label">接單人員</label>
+      <select class="form-select" id="no-staff">${staffOpts}</select>
+    </div>
+    <div class="form-block">
+      <label class="form-label">客戶來源</label>
+      <div class="chip-row">${srcChips}</div>
+    </div>
+    <div class="form-block">
+      <label class="form-label">備註</label>
+      <textarea class="form-textarea" id="no-note" rows="2" placeholder="特殊需求、注意事項...">${newOrder.note}</textarea>
+    </div>
+    <button class="btn btn-gold" onclick="submitOrder()">確認建立訂單 ✓</button>
+    <div style="height:40px;"></div>`;
+}
+
+window.onShipChange=function(val){
+  newOrder.shipping=val;
+  const block=document.getElementById('ship-detail-block');
+  const lbl=document.getElementById('ship-detail-label');
+  if(val==='門市自取'||!val){ block.style.display='none'; }
+  else { block.style.display='block'; lbl.textContent=val==='711'?'711門市名稱':'宅配地址'; document.getElementById('no-ship-detail').placeholder=val==='711'?'例：全家信義店':'完整收件地址'; }
+}
+
+window.searchCustomer=function(v){
+  const sugg=document.getElementById('customer-suggestions'); if(!sugg)return;
+  if(!v){ sugg.innerHTML=''; return; }
+  const matches=getCustomers().filter(c=>c.name.includes(v)||c.phone.includes(v));
+  if(!matches.length){ sugg.innerHTML=''; return; }
+  sugg.innerHTML=`<div style="background:var(--white);border-radius:8px;border:1px solid rgba(26,10,46,0.1);margin-top:4px;">` + matches.map(c=>`<div style="padding:10px 14px;font-size:13px;cursor:pointer;border-bottom:1px solid rgba(26,10,46,0.06);" onclick="fillCustomer('${c.id}')">${c.name} · ${c.phone}</div>`).join('') + `</div>`;
+}
+
+window.fillCustomer=function(id){
+  const c=getCustomers().find(x=>x.id===id); if(!c)return;
+  document.getElementById('no-customer').value=c.name;
+  document.getElementById('no-phone').value=c.phone;
+  document.getElementById('no-shipping').value=c.shipping||'';
+  onShipChange(c.shipping||'');
+  if(document.getElementById('no-ship-detail')) document.getElementById('no-ship-detail').value=c.shippingDetail||'';
+  document.getElementById('customer-suggestions').innerHTML='';
+}
+
+window.setOrderField=function(field,val,el){
+  newOrder[field]=val;
+  el.closest('.chip-row').querySelectorAll('.chip').forEach(c=>c.classList.remove('on'));
+  el.classList.add('on');
+}
+
+window.openProductPicker=function(){
+  const products=getProducts();
+  const html=`<div class="modal-title">選擇商品</div>` + products.map(p=>`
+    <div class="product-card" onclick="addProduct('${p.id}')">
+      <div class="product-img" style="width:44px;height:44px;font-size:18px;">🏺</div>
+      <div>
+        <div class="product-name">${p.name}</div>
+        <div class="product-meta">${p.code} · 庫存：${p.stock}</div>
+        <div style="font-size:13px;font-weight:500;color:var(--deep);margin-top:3px;">$${p.price.toLocaleString()}</div>
+      </div>
+    </div>`).join('');
+  openModal(html);
+}
+
+window.addProduct=function(id){
+  const p=getProductById(id); if(!p)return;
+  const exist=selectedProducts.findIndex(x=>x.id===id);
+  if(exist>=0) selectedProducts[exist].qty++;
+  else selectedProducts.push({...p,qty:1});
+  _closeModal();
+  renderPage('new-order');
+}
+
+window.changeQty=function(i,delta){
+  selectedProducts[i].qty+=delta;
+  if(selectedProducts[i].qty<=0) selectedProducts.splice(i,1);
+  renderPage('new-order');
+}
+window.removeItem=function(i){ selectedProducts.splice(i,1); renderPage('new-order'); }
+
+window.submitOrder=function(){
+  const customer=document.getElementById('no-customer')?.value?.trim();
+  const phone=document.getElementById('no-phone')?.value?.trim();
+  const shipping=document.getElementById('no-shipping')?.value;
+  if(!customer){ toast('⚠ 請填入訂購人姓名'); return; }
+  if(!phone){ toast('⚠ 請填入電話'); return; }
+  if(!selectedProducts.length){ toast('⚠ 請至少選擇一項商品'); return; }
+  
+  const orders=getOrders();
+  const newId=genOrderId();
+  const hasBuddha=selectedProducts.some(p=>!['手鍊','符管','周邊聖物','充電寶'].includes(p.category));
+  const gift=document.getElementById('no-gift')?.value||'';
+  
+  orders.unshift({
+    id:newId,
+    date:new Date().toISOString().slice(0,10),
+    customer,phone,shipping,
+    shippingDetail:document.getElementById('no-ship-detail')?.value||'',
+    items:selectedProducts.map(p=>({productId:p.id,qty:p.qty})),
+    gift,
+    staff:document.getElementById('no-staff')?.value||getStaff()[0],
+    source:newOrder.source||'門市',
+    status:'待寄出',
+    note:document.getElementById('no-note')?.value||''
+  });
+  save('orders',orders);
+  
+  // Update stock
+  const products=getProducts();
+  selectedProducts.forEach(sp=>{ const i=products.findIndex(p=>p.id===sp.id); if(i>=0) products[i].stock=Math.max(0,products[i].stock-sp.qty); });
+  save('products',products);
+  
+  // Save/update customer
+  const customers=getCustomers();
+  const ci=customers.findIndex(c=>c.phone===phone);
+  if(ci<0) customers.push({id:'C'+Date.now(),name:customer,phone,shipping,shippingDetail:document.getElementById('no-ship-detail')?.value||''});
+  save('customers',customers);
+  
+  selectedProducts=[];
+  newOrder={ customer:'',phone:'',shipping:'',shippingDetail:'',items:[],gift:'',staff:'',source:'',note:'' };
+  
+  if(hasBuddha&&!gift) toast('⚠ 訂單建立！注意：未填佛牌鍊');
+  else toast('✅ 訂單 #'+newId+' 建立成功！');
+  navigateTo('orders');
+}
+
+// ============ FILTER ============
+let filterState = { cats:[], effects:[], type:'不限', budgetMin:'', budgetMax:'', master:'' };
+function renderFilter(){
+  const catChips = CATS.slice(0,20).map(c=>`<span class="chip${filterState.cats.includes(c)?' on':''}" onclick="toggleFilter('cats','${c}',this)">${c}</span>`).join('') + `<span class="chip" onclick="showAllCats()">更多...</span>`;
+  const effChips = EFFECTS.map(e=>`<span class="chip${filterState.effects.includes(e)?' on':''}" onclick="toggleFilter('effects','${e}',this)">${e}</span>`).join('');
+  
+  let results = [];
+  const hasFilter = filterState.cats.length||filterState.effects.length||filterState.type!=='不限'||filterState.budgetMin||filterState.budgetMax;
+  if(hasFilter){
+    results = getProducts().filter(p=>{
+      if(filterState.cats.length && !filterState.cats.includes(p.category)) return false;
+      if(filterState.effects.length && !filterState.effects.some(e=>p.effects.includes(e))) return false;
+      if(filterState.type!=='不限' && p.type!==filterState.type) return false;
+      if(filterState.budgetMin && p.price<parseInt(filterState.budgetMin)) return false;
+      if(filterState.budgetMax && p.price>parseInt(filterState.budgetMax)) return false;
+      return true;
+    });
+  }
+  
+  const resultHTML = hasFilter ? (results.length ? results.map(p=>`
+    <div class="product-card" onclick="openProductDetail('${p.id}')">
+      <div class="product-img" style="font-size:22px;">🏺</div>
+      <div style="flex:1;">
+        <div class="product-name">${p.name}</div>
+        <div class="product-meta">${p.master} · ${p.year}年 · 庫存：${p.stock}</div>
+        <div class="product-tags">${p.effects.slice(0,3).map(e=>`<span class="ptag ptag-effect">${e}</span>`).join('')}${p.type==='陰牌'?'<span class="ptag ptag-neg">陰牌</span>':'<span class="ptag ptag-pos">正牌</span>'}</div>
+        <div class="price-tag">$${p.price.toLocaleString()}</div>
+      </div>
+    </div>`).join('') : `<div class="empty-state"><div class="emoji">🔍</div><p>無符合商品</p></div>`) : '';
+
+  return `
+    <div style="background:var(--white);border-radius:var(--radius);padding:14px;margin-bottom:12px;border:1px solid rgba(26,10,46,0.06);">
+      <div class="sec" style="margin:0 0 10px;">預算範圍 (TWD)</div>
+      <div class="form-row">
+        <input class="form-input" type="number" placeholder="最低" id="f-min" value="${filterState.budgetMin}">
+        <input class="form-input" type="number" placeholder="最高" id="f-max" value="${filterState.budgetMax}">
+      </div>
+    </div>
+    <div style="background:var(--white);border-radius:var(--radius);padding:14px;margin-bottom:12px;border:1px solid rgba(26,10,46,0.06);">
+      <div class="sec" style="margin:0 0 10px;">正牌 / 陰牌</div>
+      <div class="switch">
+        <button class="switch-opt${filterState.type==='不限'?' on':''}" onclick="setFilterType('不限')">不限</button>
+        <button class="switch-opt${filterState.type==='正牌'?' on':''}" onclick="setFilterType('正牌')">正牌</button>
+        <button class="switch-opt${filterState.type==='陰牌'?' on':''}" onclick="setFilterType('陰牌')">陰牌</button>
+      </div>
+    </div>
+    <div style="background:var(--white);border-radius:var(--radius);padding:14px;margin-bottom:12px;border:1px solid rgba(26,10,46,0.06);">
+      <div class="sec" style="margin:0 0 10px;">商品種類</div>
+      <div class="chip-row">${catChips}</div>
+    </div>
+    <div style="background:var(--white);border-radius:var(--radius);padding:14px;margin-bottom:12px;border:1px solid rgba(26,10,46,0.06);">
+      <div class="sec" style="margin:0 0 10px;">功效需求</div>
+      <div class="chip-row">${effChips}</div>
+    </div>
+    <button class="btn btn-gold" onclick="runFilter()">搜尋符合商品</button>
+    <button class="btn btn-secondary" style="width:100%;margin-top:8px;" onclick="clearFilter()">清除條件</button>
+    <div id="filter-results" style="margin-top:16px;">${resultHTML}</div>
+    <div style="height:40px;"></div>`;
+}
+
+window.toggleFilter=function(field,val,el){ 
+  const arr=filterState[field];
+  const i=arr.indexOf(val);
+  if(i>=0) arr.splice(i,1); else arr.push(val);
+  el.classList.toggle('on');
+}
+window.setFilterType=function(val){ filterState.type=val; renderPage('filter'); }
+window.runFilter=function(){
+  filterState.budgetMin=document.getElementById('f-min')?.value||'';
+  filterState.budgetMax=document.getElementById('f-max')?.value||'';
+  renderPage('filter');
+}
+window.clearFilter=function(){ filterState={cats:[],effects:[],type:'不限',budgetMin:'',budgetMax:'',master:''}; renderPage('filter'); }
+window.showAllCats=function(){
+  const html=`<div class="modal-title">選擇種類</div><div class="chip-row" style="max-height:60vh;overflow-y:auto;">` + CATS.map(c=>`<span class="chip${filterState.cats.includes(c)?' on':''}" onclick="toggleFilterCat('${c}',this)">${c}</span>`).join('') + `</div><button class="btn btn-primary" onclick="_closeModal();renderPage('filter')">確認</button>`;
+  openModal(html);
+}
+window.toggleFilterCat=function(val,el){ const i=filterState.cats.indexOf(val); if(i>=0) filterState.cats.splice(i,1); else filterState.cats.push(val); el.classList.toggle('on'); }
+
+// ============ PRODUCTS ============
+let productSearch = '';
+function renderProducts(){
+  const products = getProducts().filter(p=> !productSearch || p.name.includes(productSearch)||p.code.includes(productSearch)||p.category.includes(productSearch));
+  const cards = products.map(p=>`
+    <div class="product-card" onclick="openProductDetail('${p.id}')">
+      <div class="product-img" style="font-size:24px;">🏺</div>
+      <div style="flex:1;">
+        <div class="product-name">${p.name}</div>
+        <div class="product-meta">${p.code} · ${p.master} · ${p.year}年</div>
+        <div class="product-tags">
+          ${p.effects.slice(0,3).map(e=>`<span class="ptag ptag-effect">${e}</span>`).join('')}
+          <span class="ptag ${p.type==='陰牌'?'ptag-neg':'ptag-pos'}">${p.type}</span>
+        </div>
+        <div style="display:flex;gap:12px;margin-top:6px;align-items:center;">
+          <span class="price-tag">$${p.price.toLocaleString()}</span>
+          <span class="stock-tag ${p.stock<=1?'stock-low':''}">庫存：${p.stock}</span>
+        </div>
+      </div>
+    </div>`).join('');
+  return `
+    <div style="display:flex;gap:8px;align-items:center;">
+      <div class="search-bar" style="flex:1;"><span class="search-icon">🔍</span><input type="text" placeholder="搜尋商品名稱、種類..." id="prod-search" value="${productSearch}" oninput="setProdSearch(this.value)"></div>
+      <button class="topbar-btn" style="background:rgba(26,10,46,0.08);flex-shrink:0;" onclick="refreshProductsFromCloud()" title="同步雲端最新資料">🔄</button>
+    </div>
+    ${CLOUD_ENABLED?'':'<div style="font-size:11px;color:var(--text3);margin:4px 2px 8px;">⚠ 尚未連接雲端資料庫，目前僅本機資料</div>'}
+    ${cards || '<div class="empty-state"><div class="emoji">📦</div><p>無商品資料</p></div>'}
+    <div style="height:80px;"></div>
+    <button class="fab" onclick="openNewProduct()">＋</button>`;
+}
+window.setProdSearch=function(v){ productSearch=v; renderPage('products'); }
+
+window.openProductDetail=function(id){
+  const p=getProductById(id); if(!p)return;
+  openModal(`
+    <div class="modal-title">${p.name}</div>
+    <div class="detail-row"><span class="detail-key">商品編號</span><span class="detail-val">${p.code}</span></div>
+    <div class="detail-row"><span class="detail-key">種類</span><span class="detail-val">${p.category}</span></div>
+    <div class="detail-row"><span class="detail-key">正/陰牌</span><span class="detail-val">${p.type}</span></div>
+    <div class="detail-row"><span class="detail-key">師傅/寺廟</span><span class="detail-val">${p.master}</span></div>
+    <div class="detail-row"><span class="detail-key">製作年分</span><span class="detail-val">${p.year}年</span></div>
+    <div class="detail-row"><span class="detail-key">材料</span><span class="detail-val">${p.material}</span></div>
+    <div class="detail-row"><span class="detail-key">特色</span><span class="detail-val">${p.feature}</span></div>
+    <div class="detail-row"><span class="detail-key">功效</span><span class="detail-val">${p.effects.join('、')}</span></div>
+    <div class="detail-row"><span class="detail-key">庫存</span><span class="detail-val ${p.stock<=1?'stock-low':''}">${p.stock} 件</span></div>
+    <div class="detail-row"><span class="detail-key">售價</span><span class="detail-val" style="font-weight:500;font-size:15px;">$${p.price.toLocaleString()}</span></div>
+    <div style="margin-top:16px;">
+      <label class="form-label">調整庫存</label>
+      <div style="display:flex;gap:8px;">
+        <input class="form-input" type="number" id="stock-adj" value="${p.stock}" style="flex:1;">
+        <button class="btn btn-primary btn-sm" style="width:auto;margin-top:0;" onclick="updateStock('${id}')">更新</button>
+      </div>
+    </div>
+    <button class="btn btn-secondary" style="width:100%;margin-top:10px;" onclick="_closeModal()">關閉</button>
+  `);
+}
+
+window.updateStock=async function(id){
+  const val=parseInt(document.getElementById('stock-adj')?.value);
+  if(isNaN(val)||val<0){ toast('⚠ 請輸入有效數量'); return; }
+  const products=getProducts(); const i=products.findIndex(p=>p.id===id);
+  if(i>=0){ products[i].stock=val; save('products',products); await pushProductToCloud(products[i]); }
+  _closeModal(); toast('✅ 庫存已更新'+(CLOUD_ENABLED?'（已同步雲端）':'')); renderPage('products');
+}
+
+window.openNewProduct=function(){
+  const masters=load('masters')||MASTERS;
+  const cats=load('cats')||CATS;
+  const effs=load('effects')||EFFECTS;
+  let selCats=[], selEffs=[], selType='正牌', selMaster='';
+  
+  openModal(`
+    <div class="modal-title">新增商品</div>
+    <div class="form-block"><label class="form-label">商品名稱 *</label><input class="form-input" id="np-name" placeholder="商品名稱"></div>
+    <div class="form-block"><label class="form-label">售價 *</label><input class="form-input" id="np-price" type="number" placeholder="0"></div>
+    <div class="form-block"><label class="form-label">庫存數量</label><input class="form-input" id="np-stock" type="number" value="1"></div>
+    <div class="form-block">
+      <label class="form-label">種類 *</label>
+      <select class="form-select" id="np-cat">
+        ${cats.map(c=>`<option>${c}</option>`).join('')}
+        <option value="__new__">+ 新增種類</option>
+      </select>
+    </div>
+    <div class="form-block">
+      <label class="form-label">正牌 / 陰牌</label>
+      <div class="switch">
+        <button class="switch-opt on" id="np-pos" onclick="document.getElementById('np-pos').classList.add('on');document.getElementById('np-neg').classList.remove('on')">正牌</button>
+        <button class="switch-opt" id="np-neg" onclick="document.getElementById('np-neg').classList.add('on');document.getElementById('np-pos').classList.remove('on')">陰牌</button>
+      </div>
+    </div>
+    <div class="form-block">
+      <label class="form-label">師傅/寺廟</label>
+      <select class="form-select" id="np-master">
+        <option value="">選擇師傅...</option>
+        ${masters.map(m=>`<option>${m}</option>`).join('')}
+        <option value="__new__">+ 新增師傅</option>
+      </select>
+    </div>
+    <div class="form-block"><label class="form-label">製作年分</label><input class="form-input" id="np-year" type="number" placeholder="${new Date().getFullYear()}"></div>
+    <div class="form-block"><label class="form-label">材料</label><input class="form-input" id="np-material" placeholder="銅、金箔..."></div>
+    <div class="form-block"><label class="form-label">特色描述</label><textarea class="form-textarea" id="np-feature" rows="2" placeholder="特色說明..."></textarea></div>
+    <div class="form-block">
+      <label class="form-label">功效（可複選）</label>
+      <div class="chip-row" id="np-effects">${effs.map(e=>`<span class="chip" onclick="this.classList.toggle('on')">${e}</span>`).join('')}</div>
+    </div>
+    <div class="form-block">
+      <label class="form-label">商品照片</label>
+      <div style="display:flex;gap:10px;align-items:center;">
+        <label class="photo-upload" for="np-photo-file">📷</label>
+        <input type="file" id="np-photo-file" accept="image/*" capture="environment" style="display:none;" onchange="previewPhoto(this)">
+        <img id="np-photo-preview" style="display:none;" class="photo-preview" onclick="document.getElementById('np-photo-file').click()">
+      </div>
+    </div>
+    <button class="btn btn-gold" onclick="saveNewProduct()">確認建檔</button>
+    <div style="height:20px;"></div>
+  `);
+}
+
+window.previewPhoto=function(input){
+  if(!input.files||!input.files[0]) return;
+  const r=new FileReader();
+  r.onload=function(e){ 
+    const img=document.getElementById('np-photo-preview');
+    img.src=e.target.result; img.style.display='block';
+    document.querySelector('.photo-upload').style.display='none';
+  };
+  r.readAsDataURL(input.files[0]);
+}
+
+window.saveNewProduct=async function(){
+  const name=document.getElementById('np-name')?.value?.trim();
+  const price=parseInt(document.getElementById('np-price')?.value);
+  const cat=document.getElementById('np-cat')?.value;
+  if(!name){ toast('⚠ 請填入商品名稱'); return; }
+  if(!price||isNaN(price)){ toast('⚠ 請填入售價'); return; }
+  if(!cat||cat==='__new__'){ toast('⚠ 請選擇種類'); return; }
+  
+  const type=document.getElementById('np-pos')?.classList.contains('on')?'正牌':'陰牌';
+  const master=document.getElementById('np-master')?.value||'';
+  const year=document.getElementById('np-year')?.value||new Date().getFullYear().toString();
+  const stock=parseInt(document.getElementById('np-stock')?.value)||1;
+  const material=document.getElementById('np-material')?.value||'';
+  const feature=document.getElementById('np-feature')?.value||'';
+  const effects=[...document.querySelectorAll('#np-effects .chip.on')].map(c=>c.textContent);
+  const photoFile=document.getElementById('np-photo-file');
+  const photoPreview=document.getElementById('np-photo-preview');
+  const image=photoPreview?.style.display!=='none'?photoPreview?.src||'':'';
+  
+  const catCode=cat.substring(0,2).toUpperCase();
+  const ym=year.slice(-2)+String(new Date().getMonth()+1).padStart(2,'0');
+  const products=getProducts();
+  const sameCode=products.filter(p=>p.code.startsWith(catCode)).length+1;
+  const code=`${catCode}${year}-${String(sameCode).padStart(3,'0')}`;
+  
+  const newProduct = { id:catCode+Date.now(), code, category:cat, name, type, master, year, stock, price, effects, material, feature, image };
+  products.unshift(newProduct);
+  save('products',products);
+  await pushProductToCloud(newProduct);
+
+  if(master==='__new__'){ const m=load('masters')||MASTERS; if(!m.includes(master)) { m.push(master); save('masters',m); } }
+
+  _closeModal(); toast('✅ 商品建檔成功！'+(CLOUD_ENABLED?'（已同步雲端）':'')); renderPage('products');
+}
+
+// ============ CUSTOMERS ============
+let customerSearch = '';
+function renderCustomers(){
+  const orders = getOrders();
+  const customers = getCustomers().filter(c=> !customerSearch || c.name.includes(customerSearch)||c.phone.includes(customerSearch));
+  const cards = customers.map(c=>{
+    const cOrders = orders.filter(o=>o.phone===c.phone);
+    const total = cOrders.reduce((sum,o)=>sum+o.items.reduce((s,it)=>{ const p=getProductById(it.productId); return s+(p?p.price*it.qty:0); },0),0);
+    const last = cOrders.sort((a,b)=>b.date.localeCompare(a.date))[0];
+    const initials = c.name.slice(-2);
+    return `<div class="customer-card" onclick="openCustomerDetail('${c.id}')">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
+        <div class="customer-avatar">${initials}</div>
+        <div style="flex:1;">
+          <div style="font-size:15px;font-weight:500;">${c.name}</div>
+          <div style="font-size:12px;color:var(--text2);">${c.phone} · ${c.shipping||'—'}</div>
+        </div>
+      </div>
+      <div style="display:flex;gap:0;">
+        <div class="customer-stat" style="flex:1;border-right:1px solid rgba(26,10,46,0.08);">
+          <div class="customer-stat-val">${cOrders.length}</div>
+          <div class="customer-stat-label">訂單數</div>
+        </div>
+        <div class="customer-stat" style="flex:1;border-right:1px solid rgba(26,10,46,0.08);">
+          <div class="customer-stat-val">$${total>999?Math.round(total/1000)+'k':total}</div>
+          <div class="customer-stat-label">消費總額</div>
+        </div>
+        <div class="customer-stat" style="flex:1;">
+          <div class="customer-stat-val" style="font-size:13px;">${last?last.date.slice(5):'—'}</div>
+          <div class="customer-stat-label">最近購買</div>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+  return `
+    <div class="search-bar"><span class="search-icon">🔍</span><input type="text" placeholder="搜尋客戶姓名或電話..." id="cust-search" value="${customerSearch}" oninput="setCustSearch(this.value)"></div>
+    ${cards || '<div class="empty-state"><div class="emoji">👤</div><p>無客戶資料</p></div>'}
+    <div style="height:40px;"></div>`;
+}
+window.setCustSearch=function(v){ customerSearch=v; renderPage('customers'); }
+
+window.openCustomerDetail=function(id){
+  const c=getCustomers().find(x=>x.id===id); if(!c)return;
+  const orders=getOrders().filter(o=>o.phone===c.phone).sort((a,b)=>b.date.localeCompare(a.date));
+  const orderList=orders.slice(0,5).map(o=>`
+    <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid rgba(26,10,46,0.06);">
+      <div><div style="font-size:13px;">#${o.id}</div><div style="font-size:11px;color:var(--text3);">${o.date}</div></div>
+      <span class="badge ${STATUS_BADGE[o.status]||'b-ship'}">${o.status}</span>
+    </div>`).join('');
+  openModal(`
+    <div class="modal-title">${c.name}</div>
+    <div class="detail-row"><span class="detail-key">電話</span><span class="detail-val">${c.phone}</span></div>
+    <div class="detail-row"><span class="detail-key">常用寄送</span><span class="detail-val">${c.shipping||'—'}</span></div>
+    <div class="detail-row"><span class="detail-key">寄送資訊</span><span class="detail-val">${c.shippingDetail||'—'}</span></div>
+    <div style="margin-top:14px;"><div class="sec" style="margin:0 0 8px;">過往訂單（${orders.length}筆）</div>${orderList||'<div style="font-size:13px;color:var(--text3);padding:8px 0;">無訂單記錄</div>'}</div>
+    <button class="btn btn-secondary" style="width:100%;margin-top:14px;" onclick="_closeModal()">關閉</button>
+  `);
+}
+
+// ============ REPORT ============
+function renderReport(){
+  const orders = getOrders();
+  const months = ['10月','11月','12月','1月'];
+  const monthSales = [72000, 89000, 104000, 128400];
+  const maxSale = Math.max(...monthSales);
+  
+  const barsHTML = months.map((m,i)=>`
+    <div class="bar-col">
+      <div class="bar-val-t${i===3?' curr':''}">${monthSales[i]>=1000?Math.round(monthSales[i]/1000)+'k':monthSales[i]}</div>
+      <div class="bar${i===3?' curr':''}" style="height:${Math.round(monthSales[i]/maxSale*80)}px;"></div>
+      <div class="bar-lbl">${m}</div>
+    </div>`).join('');
+  
+  const sourceMap = {};
+  orders.forEach(o=>{ sourceMap[o.source]=(sourceMap[o.source]||0)+1; });
+  const total=orders.length||1;
+  const srcColors=['#d4a843','#3d7ac8','#2d8a5a','#c8553d'];
+  const srcList=SOURCE_LIST.map((s,i)=>({ name:s, pct:Math.round((sourceMap[s]||0)/total*100), color:srcColors[i] }));
+  
+  const sourceHTML=srcList.map(s=>`
+    <div class="source-item">
+      <div class="source-dot" style="background:${s.color};"></div>
+      <div class="source-name">${s.name}</div>
+      <div class="source-pct">${s.pct}%</div>
+    </div>`).join('');
+  
+  const rankMap={};
+  orders.forEach(o=>o.items.forEach(it=>{ const p=getProductById(it.productId); if(p){ rankMap[p.category]=(rankMap[p.category]||0)+p.price*it.qty; } }));
+  const ranking=Object.entries(rankMap).sort((a,b)=>b[1]-a[1]).slice(0,5);
+  const rankHTML=ranking.map((r,i)=>`<div class="rank-item"><div class="rank-num${i===0?' r1':''}">${i+1}</div><div class="rank-name">${r[0]}</div><div class="rank-sales">$${r[1].toLocaleString()}</div></div>`).join('');
+  
+  const staffMap={};
+  orders.forEach(o=>{ staffMap[o.staff]=(staffMap[o.staff]||0)+o.items.reduce((s,it)=>{ const p=getProductById(it.productId); return s+(p?p.price*it.qty:0); },0); });
+  const staffRank=Object.entries(staffMap).sort((a,b)=>b[1]-a[1]);
+  const staffHTML=staffRank.map((r,i)=>`<div class="rank-item"><div class="rank-num${i===0?' r1':''}">${i+1}</div><div class="rank-name">${r[0]}</div><div class="rank-sales">$${r[1].toLocaleString()}</div></div>`).join('');
+
+  return `
+    <div class="chart-wrap">
+      <div class="sec" style="margin:0 0 14px;">月銷售趨勢</div>
+      <div class="bars">${barsHTML}</div>
+    </div>
+    <div style="background:var(--white);border-radius:var(--radius);padding:14px;margin-bottom:10px;border:1px solid rgba(26,10,46,0.06);">
+      <div class="sec" style="margin:0 0 12px;">客戶來源分析</div>
+      <div class="source-legend">${sourceHTML}</div>
+    </div>
+    <div style="background:var(--white);border-radius:var(--radius);padding:4px 14px;margin-bottom:10px;border:1px solid rgba(26,10,46,0.06);">
+      <div class="sec" style="margin:12px 0 8px;">商品銷售排行</div>
+      ${rankHTML||'<div style="font-size:13px;color:var(--text3);padding:8px 0;">暫無資料</div>'}
+    </div>
+    <div style="background:var(--white);border-radius:var(--radius);padding:4px 14px;margin-bottom:10px;border:1px solid rgba(26,10,46,0.06);">
+      <div class="sec" style="margin:12px 0 8px;">接單人員業績</div>
+      ${staffHTML||'<div style="font-size:13px;color:var(--text3);padding:8px 0;">暫無資料</div>'}
+    </div>
+    <div style="height:20px;"></div>`;
+}
+
+// ============ BIND EVENTS ============
+function bindPageEvents(page){}
+
+// ============ NOTIFICATIONS ============
+window.showNotif=function(){
+  const orders=getOrders();
+  const alerts=[];
+  orders.filter(o=>o.status==='待寄出'||o.status==='待選鍊子').forEach(o=>{
+    const noGift=o.items.some(it=>{ const p=getProductById(it.productId); return p&&!['手鍊','符管','周邊聖物','充電寶'].includes(p.category); })&&!o.gift;
+    if(noGift) alerts.push(`<div style="padding:10px 0;border-bottom:1px solid rgba(26,10,46,0.06);font-size:13px;">⚠️ ${o.customer} #${o.id}<br><span style="color:var(--text3);font-size:12px;">未填佛牌鍊，請確認</span></div>`);
+  });
+  openModal(`<div class="modal-title">🔔 待處理提醒</div>${alerts.join('')||'<div style="text-align:center;padding:20px;color:var(--text3);">暫無待處理提醒</div>'}<button class="btn btn-secondary" style="width:100%;margin-top:14px;" onclick="_closeModal()">關閉</button>`);
+}
+
+// ============ INIT ============
+window.refreshProductsFromCloud=async function(){
+  if(!CLOUD_ENABLED){ toast('⚠ 尚未設定雲端資料庫'); return; }
+  toast('🔄 同步中...');
+  const ok = await syncProductsFromCloud();
+  toast(ok?'✅ 商品資料已更新':'⚠ 同步失敗，請檢查網路');
+  renderPage(currentPage||'products');
+}
+
+async function boot(){
+  initDB();
+  if(CLOUD_ENABLED) await syncProductsFromCloud();
+  const now = new Date();
+  document.getElementById('topbar-date').textContent = `${now.getFullYear()}/${now.getMonth()+1}/${now.getDate()} · 店主模式${CLOUD_ENABLED?'':'（未連接雲端）'}`;
+  renderPage('home');
+}
+boot();
+</script>
+</body>
+</html>
