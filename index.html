@@ -729,17 +729,16 @@ function renderHome(){
 let orderFilter = '全部';
 let orderSearch = '';
 let orderMonthFilter = new Date().toISOString().slice(0,7); // 預設只顯示當月訂單，空字串代表「全部月份」
-function renderOrders(){
+function getFilteredOrders(){
   const orders = getOrders();
   let filtered = orders;
   if(orderMonthFilter) filtered = filtered.filter(o=>o.date && o.date.startsWith(orderMonthFilter));
   if(orderFilter!=='全部') filtered = filtered.filter(o=>o.status===orderFilter);
   if(orderSearch) filtered = filtered.filter(o=>o.customer.includes(orderSearch)||o.id.includes(orderSearch)||o.phone.includes(orderSearch)||(o.recipientName||'').includes(orderSearch));
-  
-  const statusBtns = STATUS_LIST.map(s=>`<span class="chip${orderFilter===s?' on':''}" onclick="setOrderFilter('${s}')" style="white-space:nowrap;">${s}</span>`).join('');
+  return filtered;
+}
+function orderCardsHTML(filtered){
   const quickStatusOpts = STATUS_LIST.filter(s=>s!=='全部');
-  const monthOpts = `<option value=""${orderMonthFilter===''?' selected':''}>全部月份</option>` + getAvailableMonths(orders).map(m=>`<option value="${m}"${orderMonthFilter===m?' selected':''}>${monthLabel(m)}</option>`).join('');
-  
   const cards = filtered.map(o=>{
     const items = o.items.map(it=>`${itemName(it)} ×${it.qty}`).join('、');
     const noGift = !['已寄出','取消','退貨'].includes(o.status) && o.items.some(it=>!['手鍊','符管','周邊聖物'].includes(itemCategory(it))) && !o.gift;
@@ -759,6 +758,13 @@ function renderOrders(){
       </div>
     </div>`;
   }).join('');
+  return cards || '<div class="empty-state"><div class="emoji">📋</div><p>無符合訂單</p></div>';
+}
+function renderOrders(){
+  const orders = getOrders();
+  const filtered = getFilteredOrders();
+  const statusBtns = STATUS_LIST.map(s=>`<span class="chip${orderFilter===s?' on':''}" onclick="setOrderFilter('${s}')" style="white-space:nowrap;">${s}</span>`).join('');
+  const monthOpts = `<option value=""${orderMonthFilter===''?' selected':''}>全部月份</option>` + getAvailableMonths(orders).map(m=>`<option value="${m}"${orderMonthFilter===m?' selected':''}>${monthLabel(m)}</option>`).join('');
 
   return `
     <div style="display:flex;gap:8px;align-items:center;">
@@ -768,13 +774,16 @@ function renderOrders(){
     </div>
     <select class="form-select" style="margin-bottom:10px;" onchange="setOrderMonthFilter(this.value)">${monthOpts}</select>
     <div class="chip-row" style="margin-bottom:14px;">${statusBtns}</div>
-    ${cards || '<div class="empty-state"><div class="emoji">📋</div><p>無符合訂單</p></div>'}
+    <div id="orders-list">${orderCardsHTML(filtered)}</div>
     <div style="height:80px;"></div>`;
 }
 window.setOrderMonthFilter=function(v){ orderMonthFilter=v; renderPage('orders'); }
-
 window.setOrderFilter=function(s){ orderFilter=s; renderPage('orders'); }
-window.setOrderSearch=function(v){ orderSearch=v; renderPage('orders'); }
+window.setOrderSearch=function(v){
+  orderSearch=v;
+  const el=document.getElementById('orders-list');
+  if(el) el.innerHTML = orderCardsHTML(getFilteredOrders());
+}
 
 window.openOrderDetail=function(id){
   const o = getOrders().find(x=>x.id===id);
@@ -802,16 +811,13 @@ window.openOrderDetail=function(id){
     </div>
     <button class="btn btn-primary" onclick="updateOrderStatus('${id}')">更新訂單狀態</button>
     <button class="btn btn-secondary" style="width:100%;margin-top:8px;" onclick="openEditOrder('${id}')">✏️ 編輯訂單內容</button>
+    <button class="btn" style="width:100%;margin-top:8px;background:#fdece8;color:#c0392b;" onclick="confirmDeleteOrder('${id}')">🗑 刪除訂單</button>
     <button class="btn btn-secondary" style="width:100%;margin-top:8px;" onclick="_closeModal()">關閉</button>
   `);
 }
 
 window.exportOrdersExcel=function(){
-  const orders = getOrders();
-  let filtered = orders;
-  if(orderMonthFilter) filtered = filtered.filter(o=>o.date && o.date.startsWith(orderMonthFilter));
-  if(orderFilter!=='全部') filtered = filtered.filter(o=>o.status===orderFilter);
-  if(orderSearch) filtered = filtered.filter(o=>o.customer.includes(orderSearch)||o.id.includes(orderSearch)||o.phone.includes(orderSearch)||(o.recipientName||'').includes(orderSearch));
+  const filtered = getFilteredOrders();
   if(!filtered.length){ toast('⚠ 沒有可匯出的訂單'); return; }
 
   const rows = filtered.map(o=>({
@@ -839,6 +845,44 @@ window.exportOrdersExcel=function(){
   const label = orderFilter!=='全部' ? orderFilter : '全部';
   XLSX.writeFile(wb, `佛牌殿訂單_${label}_${new Date().toISOString().slice(0,10)}.xlsx`);
   logActivity('匯出訂單Excel', `${filtered.length} 筆（${label}）`);
+}
+
+window.confirmDeleteOrder=function(id){
+  openModal(`
+    <div class="modal-title">刪除訂單</div>
+    <div style="font-size:14px;margin-bottom:6px;">確定要刪除訂單 #${id} 嗎？</div>
+    <div style="font-size:12px;color:#c0392b;margin-bottom:18px;">⚠ 這個動作無法復原。訂單裡的商品庫存會自動歸還。</div>
+    <button class="btn" style="width:100%;background:#c0392b;color:#fff;" onclick="deleteOrder('${id}')">確定刪除</button>
+    <button class="btn btn-secondary" style="width:100%;margin-top:8px;" onclick="_closeModal()">取消</button>
+  `);
+}
+window.deleteOrder=async function(id){
+  const orders=getOrders();
+  const order=orders.find(o=>o.id===id);
+  const remaining=orders.filter(o=>o.id!==id);
+  save('orders', remaining);
+
+  if(order){
+    // 歸還庫存
+    const products=getProducts();
+    const touched=[];
+    order.items.filter(it=>!it.custom).forEach(it=>{
+      const idx=products.findIndex(p=>p.id===it.productId);
+      if(idx>=0){ products[idx].stock += it.qty; touched.push(products[idx]); }
+    });
+    save('products', products);
+    for(const p of touched) await pushProductToCloud(p);
+  }
+
+  if(CLOUD_ENABLED){
+    try{ const { error } = await sb.from('orders').delete().eq('id', id); if(error) throw error; }
+    catch(e){ console.error('雲端刪除訂單失敗', e); toast('⚠ 雲端刪除失敗，請檢查網路'); }
+  }
+  await logActivity('刪除訂單', `#${id}`);
+  _closeModal();
+  toast('✅ 訂單已刪除，庫存已歸還');
+  renderPage('orders');
+  renderPage('home');
 }
 
 window.quickUpdateStatus=async function(id, newStatus){
@@ -1336,31 +1380,27 @@ window.finalizeSubmitOrder=async function(forceFreeOverride){
 
 // ============ FILTER ============
 let filterState = { q:'', cats:[], effects:[], masters:[], type:'不限', budgetMin:'', budgetMax:'', showOutOfStock:false };
-function renderFilter(){
-  const cats = load('cats')||CATS;
-  const effs = load('effects')||EFFECTS;
-  const masters = load('masters')||MASTERS;
-  const catChips = cats.slice(0,20).map(c=>`<span class="chip${filterState.cats.includes(c)?' on':''}" onclick="toggleFilter('cats','${c}',this)">${c}</span>`).join('') + `<span class="chip" onclick="showAllCats()">更多...</span>`;
-  const effChips = effs.map(e=>`<span class="chip${filterState.effects.includes(e)?' on':''}" onclick="toggleFilter('effects','${e}',this)">${e}</span>`).join('');
-  const masterChips = masters.map(m=>`<span class="chip${filterState.masters.includes(m)?' on':''}" onclick="toggleFilter('masters','${m}',this)">${m}</span>`).join('');
-  
-  let results = [];
+function computeFilterResults(){
   const hasFilter = filterState.q||filterState.cats.length||filterState.effects.length||filterState.masters.length||filterState.type!=='不限'||filterState.budgetMin||filterState.budgetMax;
-  if(hasFilter){
-    results = getProducts().filter(p=>{
-      if(!filterState.showOutOfStock && p.stock<=0) return false;
-      if(filterState.q && !(p.name.includes(filterState.q)||p.code.includes(filterState.q)||p.category.includes(filterState.q)||(p.master||'').includes(filterState.q))) return false;
-      if(filterState.cats.length && !filterState.cats.includes(p.category)) return false;
-      if(filterState.effects.length && !filterState.effects.some(e=>p.effects.includes(e))) return false;
-      if(filterState.masters.length && !filterState.masters.includes(p.master)) return false;
-      if(filterState.type!=='不限' && p.type!==filterState.type) return false;
-      if(filterState.budgetMin && p.price<parseInt(filterState.budgetMin)) return false;
-      if(filterState.budgetMax && p.price>parseInt(filterState.budgetMax)) return false;
-      return true;
-    });
-  }
-  
-  const resultHTML = hasFilter ? (results.length ? results.map((p,i)=>`
+  if(!hasFilter) return { hasFilter:false, results:[] };
+  const results = getProducts().filter(p=>{
+    if(!filterState.showOutOfStock && p.stock<=0) return false;
+    if(filterState.q && !(p.name.includes(filterState.q)||p.code.includes(filterState.q)||p.category.includes(filterState.q)||(p.master||'').includes(filterState.q))) return false;
+    if(filterState.cats.length && !filterState.cats.includes(p.category)) return false;
+    if(filterState.effects.length && !filterState.effects.some(e=>p.effects.includes(e))) return false;
+    if(filterState.masters.length && !filterState.masters.includes(p.master)) return false;
+    if(filterState.type!=='不限' && p.type!==filterState.type) return false;
+    if(filterState.budgetMin && p.price<parseInt(filterState.budgetMin)) return false;
+    if(filterState.budgetMax && p.price>parseInt(filterState.budgetMax)) return false;
+    return true;
+  });
+  return { hasFilter:true, results };
+}
+function filterResultsHTML(){
+  const { hasFilter, results } = computeFilterResults();
+  if(!hasFilter) return '';
+  if(!results.length) return `<div class="empty-state"><div class="emoji">🔍</div><p>無符合商品</p></div>`;
+  return results.map((p,i)=>`
     <div class="product-card" style="align-items:flex-start;${p.stock<=0?'opacity:0.6;':''}">
       <div class="product-img" style="font-size:22px;overflow:hidden;" onclick="openProductDetail('${p.id}')">${p.image?`<img src="${p.image}" style="width:100%;height:100%;object-fit:cover;">`:'🏺'}</div>
       <div style="flex:1;">
@@ -1373,7 +1413,15 @@ function renderFilter(){
           ${p.image?`<button class="btn btn-secondary btn-sm" style="flex:1;margin-top:0;" id="cp-img-${i}" onclick="copyProductImage('${p.id}', this)">🖼 複製圖片</button>`:''}
         </div>
       </div>
-    </div>`).join('') : `<div class="empty-state"><div class="emoji">🔍</div><p>無符合商品</p></div>`) : '';
+    </div>`).join('');
+}
+function renderFilter(){
+  const cats = load('cats')||CATS;
+  const effs = load('effects')||EFFECTS;
+  const masters = load('masters')||MASTERS;
+  const catChips = cats.slice(0,20).map(c=>`<span class="chip${filterState.cats.includes(c)?' on':''}" onclick="toggleFilter('cats','${c}',this)">${c}</span>`).join('') + `<span class="chip" onclick="showAllCats()">更多...</span>`;
+  const effChips = effs.map(e=>`<span class="chip${filterState.effects.includes(e)?' on':''}" onclick="toggleFilter('effects','${e}',this)">${e}</span>`).join('');
+  const masterChips = masters.map(m=>`<span class="chip${filterState.masters.includes(m)?' on':''}" onclick="toggleFilter('masters','${m}',this)">${m}</span>`).join('');
 
   return `
     <div class="search-bar" style="margin-bottom:8px;"><span class="search-icon">🔍</span><input type="text" placeholder="輸入商品名稱、編號或種類快速查詢..." id="f-q" value="${filterState.q}" oninput="setFilterQ(this.value)"></div>
@@ -1419,12 +1467,16 @@ function renderFilter(){
     </div>
     <button class="btn btn-gold" onclick="runFilter()">搜尋符合商品</button>
     <button class="btn btn-secondary" style="width:100%;margin-top:8px;" onclick="clearFilter()">清除條件</button>
-    <div id="filter-results" style="margin-top:16px;">${resultHTML}</div>
+    <div id="filter-results" style="margin-top:16px;">${filterResultsHTML()}</div>
     <div style="height:80px;"></div>
     <button class="fab" onclick="openNewProduct()">＋</button>`;
 }
 
-window.setFilterQ=function(v){ filterState.q=v; renderPage('filter'); }
+window.setFilterQ=function(v){
+  filterState.q=v;
+  const el=document.getElementById('filter-results');
+  if(el) el.innerHTML = filterResultsHTML();
+}
 window.toggleFilter=function(field,val,el){ 
   const arr=filterState[field];
   const i=arr.indexOf(val);
@@ -1540,11 +1592,10 @@ window.copyProductImage=async function(id, btn){
 
 // ============ PRODUCTS ============
 let productSearch = '';
-function renderProducts(){
-  const products = getProducts().filter(p=> !productSearch || p.name.includes(productSearch)||p.code.includes(productSearch)||p.category.includes(productSearch));
-  const cards = products.map(p=>`
+function productCardsHTML(products){
+  return products.map(p=>`
     <div class="product-card" onclick="openProductDetail('${p.id}')">
-      <div class="product-img" style="font-size:24px;">🏺</div>
+      <div class="product-img" style="font-size:24px;overflow:hidden;">${p.image?`<img src="${p.image}" style="width:100%;height:100%;object-fit:cover;">`:'🏺'}</div>
       <div style="flex:1;">
         <div class="product-name">${p.name}</div>
         <div class="product-meta">${p.code} · ${p.master} · ${p.year}年</div>
@@ -1557,7 +1608,10 @@ function renderProducts(){
           <span class="stock-tag ${p.stock<=1?'stock-low':''}">庫存：${p.stock}</span>
         </div>
       </div>
-    </div>`).join('');
+    </div>`).join('') || '<div class="empty-state"><div class="emoji">📦</div><p>無商品資料</p></div>';
+}
+function renderProducts(){
+  const products = getProducts().filter(p=> !productSearch || p.name.includes(productSearch)||p.code.includes(productSearch)||p.category.includes(productSearch));
   return `
     <div style="display:flex;gap:8px;align-items:center;">
       <div class="search-bar" style="flex:1;"><span class="search-icon">🔍</span><input type="text" placeholder="搜尋商品名稱、種類..." id="prod-search" value="${productSearch}" oninput="setProdSearch(this.value)"></div>
@@ -1565,11 +1619,15 @@ function renderProducts(){
       <button class="topbar-btn" style="background:rgba(26,10,46,0.08);flex-shrink:0;width:auto;padding:0 10px;font-size:12px;" onclick="openBulkImportModal()" title="批量匯入商品">📥 匯入</button>
     </div>
     ${CLOUD_ENABLED?'':'<div style="font-size:11px;color:var(--text3);margin:4px 2px 8px;">⚠ 尚未連接雲端資料庫，目前僅本機資料</div>'}
-    ${cards || '<div class="empty-state"><div class="emoji">📦</div><p>無商品資料</p></div>'}
+    <div id="products-list">${productCardsHTML(products)}</div>
     <div style="height:80px;"></div>
     <button class="fab" onclick="openNewProduct()">＋</button>`;
 }
-window.setProdSearch=function(v){ productSearch=v; renderPage('products'); }
+window.setProdSearch=function(v){
+  productSearch=v;
+  const el=document.getElementById('products-list');
+  if(el) el.innerHTML = productCardsHTML(getProducts().filter(p=> !v || p.name.includes(v)||p.code.includes(v)||p.category.includes(v)));
+}
 
 window.openProductDetail=function(id){
   const p=getProductById(id); if(!p)return;
@@ -1935,10 +1993,8 @@ function customerOrders(c, orders){
   return orders.filter(o=>!o.phone && (o.customer===c.name || o.recipientName===c.name));
 }
 
-function renderCustomers(){
-  const orders = getOrders();
-  const customers = getCustomers().filter(c=> !customerSearch || c.name.includes(customerSearch)||c.phone.includes(customerSearch));
-  const cards = customers.map(c=>{
+function customerCardsHTML(customers, orders){
+  return customers.map(c=>{
     const cOrders = customerOrders(c, orders);
     const total = cOrders.reduce((sum,o)=>sum+(o.subtotal!=null?o.subtotal:o.items.reduce((s,it)=>s+itemLineTotal(it),0)),0);
     const last = cOrders.sort((a,b)=>b.date.localeCompare(a.date))[0];
@@ -1966,17 +2022,29 @@ function renderCustomers(){
         </div>
       </div>
     </div>`;
-  }).join('');
+  }).join('') || '<div class="empty-state"><div class="emoji">👤</div><p>無客戶資料</p></div>';
+}
+function renderCustomers(){
+  const orders = getOrders();
+  const customers = getCustomers().filter(c=> !customerSearch || c.name.includes(customerSearch)||c.phone.includes(customerSearch));
   return `
     <div style="display:flex;gap:8px;align-items:center;">
       <div class="search-bar" style="flex:1;"><span class="search-icon">🔍</span><input type="text" placeholder="搜尋客戶姓名或電話..." id="cust-search" value="${customerSearch}" oninput="setCustSearch(this.value)"></div>
       <button class="topbar-btn" style="background:rgba(26,10,46,0.08);flex-shrink:0;" onclick="refreshCustomersFromCloud()" title="同步雲端最新資料">🔄</button>
       <button class="topbar-btn" style="background:rgba(26,10,46,0.08);flex-shrink:0;width:auto;padding:0 10px;font-size:12px;" onclick="openMergeDuplicateCustomers()" title="合併同名客戶">🔗 合併</button>
     </div>
-    ${cards || '<div class="empty-state"><div class="emoji">👤</div><p>無客戶資料</p></div>'}
+    <div id="customers-list">${customerCardsHTML(customers, orders)}</div>
     <div style="height:40px;"></div>`;
 }
-window.setCustSearch=function(v){ customerSearch=v; renderPage('customers'); }
+window.setCustSearch=function(v){
+  customerSearch=v;
+  const el=document.getElementById('customers-list');
+  if(el){
+    const orders=getOrders();
+    const customers=getCustomers().filter(c=> !v || c.name.includes(v)||c.phone.includes(v));
+    el.innerHTML = customerCardsHTML(customers, orders);
+  }
+}
 
 window.openCustomerDetail=function(id){
   const c=getCustomers().find(x=>x.id===id); if(!c)return;
@@ -2074,7 +2142,7 @@ window.openMergeDuplicateCustomers=function(){
   openModal(`
     <div class="modal-title">合併同名客戶</div>
     <div style="font-size:12px;color:var(--text3);margin-bottom:14px;line-height:1.6;">
-      找到 ${dupGroups.length} 組同名客戶。合併時會保留電話資料最完整的一筆，其餘的收件地址不會遺失——會自動整合進保留下來那筆的備註欄位，過往訂單紀錄完全不受影響。
+      找到 ${dupGroups.length} 組同名客戶。點「查看明細」可以先確認是不是同一個人，再勾選要合併的資料。
     </div>
     <div style="max-height:55vh;overflow-y:auto;">
       ${dupGroups.map(([name,list])=>`
@@ -2083,17 +2151,42 @@ window.openMergeDuplicateCustomers=function(){
             <div style="font-size:14px;">${name}</div>
             <div style="font-size:11px;color:var(--text3);">${list.length} 筆收件資料</div>
           </div>
-          <button class="btn btn-secondary btn-sm" style="margin:0;" onclick="mergeCustomerGroup('${esc_js(name)}')">合併成一筆</button>
+          <button class="btn btn-secondary btn-sm" style="margin:0;" onclick="openMergeGroupDetail('${esc_js(name)}')">查看明細</button>
         </div>`).join('')}
     </div>
     <button class="btn btn-secondary" style="width:100%;margin-top:14px;" onclick="_closeModal();renderPage('customers')">關閉</button>
   `);
 }
 function esc_js(s){ return String(s).replace(/'/g,"\\'"); }
-window.mergeCustomerGroup=async function(name){
-  const customers=getCustomers();
-  const group=customers.filter(c=>c.name===name);
+
+window.openMergeGroupDetail=function(name){
+  const group=getCustomers().filter(c=>c.name===name);
   if(group.length<2) return;
+  openModal(`
+    <div class="modal-title">${name} 的收件資料</div>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:14px;line-height:1.6;">
+      勾選確定是「同一個人」的資料再合併；如果其中有明顯不是同一人的（例如同名同姓但地址完全不同的陌生人），取消勾選讓它保持獨立。
+    </div>
+    <div style="max-height:50vh;overflow-y:auto;">
+      ${group.map(c=>`
+        <label style="display:flex;gap:10px;align-items:flex-start;padding:10px 0;border-bottom:1px solid rgba(26,10,46,0.06);cursor:pointer;">
+          <input type="checkbox" class="merge-check" value="${c.id}" checked style="margin-top:3px;width:16px;height:16px;flex-shrink:0;">
+          <div>
+            <div style="font-size:13px;">${c.phone||'（未留電話）'}</div>
+            <div style="font-size:12px;color:var(--text3);">${c.shipping||'未設定寄送方式'}${c.shippingDetail?'：'+c.shippingDetail:''}</div>
+          </div>
+        </label>`).join('')}
+    </div>
+    <button class="btn btn-gold" style="margin-top:14px;" onclick="mergeCustomerGroup('${esc_js(name)}')">合併勾選的資料</button>
+    <button class="btn btn-secondary" style="width:100%;margin-top:8px;" onclick="openMergeDuplicateCustomers()">返回</button>
+  `);
+}
+
+window.mergeCustomerGroup=async function(name){
+  const checkedIds = [...document.querySelectorAll('.merge-check:checked')].map(el=>el.value);
+  if(checkedIds.length<2){ toast('⚠ 至少要勾選2筆才能合併'); return; }
+  const customers=getCustomers();
+  const group=customers.filter(c=>checkedIds.includes(c.id));
   // 選出資料最完整的一筆當作保留對象：優先有電話的，再優先有寄送地址的
   const keep = [...group].sort((a,b)=>{
     const score=(c)=> (c.phone?2:0) + (c.shippingDetail?1:0);
@@ -2274,6 +2367,11 @@ const PERMISSION_LABELS = { 'orders':'訂單管理', 'new-order':'建立訂單',
 function renderSettings(){
   if(currentRole!=='admin') return `<div class="empty-state"><div class="emoji">🔒</div><p>只有管理員能開啟這個頁面</p></div>`;
   const staffPerm = PERMISSIONS.staff||{};
+  const adminRows = Object.keys(PERMISSION_LABELS).map(key=>`
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid rgba(26,10,46,0.06);">
+      <span style="font-size:13px;color:var(--text2);">${PERMISSION_LABELS[key]}</span>
+      <span class="switch-opt on" style="min-width:60px;pointer-events:none;opacity:0.85;">開放</span>
+    </div>`).join('');
   const rows = Object.keys(PERMISSION_LABELS).map(key=>`
     <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-bottom:1px solid rgba(26,10,46,0.06);">
       <span style="font-size:14px;">${PERMISSION_LABELS[key]}</span>
@@ -2283,8 +2381,14 @@ function renderSettings(){
     </div>`).join('');
   return `
     <div style="background:var(--white);border-radius:var(--radius);padding:16px;margin-bottom:14px;border:1px solid rgba(26,10,46,0.06);">
-      <div class="sec" style="margin:0 0 4px;">身份權限</div>
-      <div style="font-size:12px;color:var(--text3);margin-bottom:10px;">管理員固定擁有所有權限，以下設定套用在「客服/門市人員」身份，會同步到所有裝置</div>
+      <div class="sec" style="margin:0 0 4px;">👑 管理員（固定，不可調整）</div>
+      <div style="font-size:12px;color:var(--text3);margin-bottom:10px;">管理員永遠擁有所有功能的完整權限</div>
+      ${adminRows}
+    </div>
+
+    <div style="background:var(--white);border-radius:var(--radius);padding:16px;margin-bottom:14px;border:1px solid rgba(26,10,46,0.06);">
+      <div class="sec" style="margin:0 0 4px;">🧑‍💼 客服/門市人員（可編輯）</div>
+      <div style="font-size:12px;color:var(--text3);margin-bottom:10px;">點擊「開放/關閉」調整這個身份能看到的功能，會同步到所有裝置</div>
       ${rows}
     </div>
 
@@ -2294,6 +2398,13 @@ function renderSettings(){
         <button class="btn btn-primary btn-sm" style="margin:0;" onclick="openCreateAccountModal()">＋ 新增帳號</button>
       </div>
       <div id="accounts-list"><div style="text-align:center;color:var(--text3);font-size:12px;padding:20px;">載入中...</div></div>
+    </div>
+
+    <div style="background:var(--white);border-radius:var(--radius);padding:16px;margin-bottom:14px;border:1px solid rgba(26,10,46,0.06);">
+      <div class="sec" style="margin:0 0 8px;">商品圖片搬到 Supabase Storage</div>
+      <div style="font-size:12px;color:var(--text3);margin-bottom:10px;line-height:1.6;">把目前存在 Google Drive 的商品圖片，自動下載後上傳到 Supabase Storage，並更新商品資料的圖片網址。每次處理少量商品，避免逾時，會自動一批一批繼續直到完成。</div>
+      <button class="btn btn-gold" id="migrate-img-btn" onclick="startImageMigration()">開始遷移圖片</button>
+      <div id="migrate-img-progress" style="font-size:12px;color:var(--text2);margin-top:10px;"></div>
     </div>
 
     <div style="background:var(--white);border-radius:var(--radius);padding:16px;margin-bottom:14px;border:1px solid rgba(26,10,46,0.06);">
@@ -2414,6 +2525,31 @@ window.resetAccountPassword=async function(userId){
 }
 
 // ---- 操作紀錄 ----
+// ---- 圖片遷移到 Supabase Storage ----
+window.startImageMigration=async function(){
+  const btn=document.getElementById('migrate-img-btn');
+  const prog=document.getElementById('migrate-img-progress');
+  btn.disabled=true; btn.textContent='遷移中...';
+  let totalDone=0, totalFail=0;
+  try{
+    while(true){
+      const result = await callAdminApi('migrate_images_batch', { batchSize: 5 });
+      totalDone += result.results.filter(r=>r.ok).length;
+      totalFail += result.results.filter(r=>!r.ok).length;
+      prog.innerHTML = `已處理 ${totalDone} 筆${totalFail?`（${totalFail} 筆失敗）`:''}，剩餘約 ${result.remaining} 筆...`;
+      if(result.processed===0 || result.remaining<=0) break;
+    }
+    prog.innerHTML += `<br>✅ 遷移完成！共成功 ${totalDone} 筆${totalFail?`，失敗 ${totalFail} 筆（可能是原始連結已失效，需要手動確認）`:''}。`;
+    toast('✅ 圖片遷移完成');
+    await syncProductsFromCloud();
+  }catch(e){
+    prog.innerHTML += `<br>⚠ 發生錯誤：${e.message}`;
+    toast('⚠ 遷移中斷：'+e.message);
+  }finally{
+    btn.disabled=false; btn.textContent='開始遷移圖片';
+  }
+}
+
 async function loadActivityLogList(){
   const el = document.getElementById('activity-log-list'); if(!el) return;
   try{
