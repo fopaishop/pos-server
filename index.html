@@ -1060,7 +1060,10 @@ function renderNewOrder(){
   return `
     <div class="form-block">
       <label class="form-label">訂購人姓名（暱稱）</label>
-      <input class="form-input" id="no-customer" type="text" value="${newOrder.customer}" placeholder="輸入或搜尋客戶..." oninput="searchCustomer(this.value)">
+      <div style="display:flex;gap:8px;">
+        <input class="form-input" id="no-customer" type="text" value="${newOrder.customer}" placeholder="輸入或搜尋客戶..." oninput="searchCustomer(this.value)" style="flex:1;">
+        <button class="btn btn-secondary btn-sm" style="width:auto;margin:0;padding:0 14px;" onclick="openCustomerQuickPick()">▼ 選擇</button>
+      </div>
       <div id="customer-suggestions"></div>
     </div>
     <div class="form-block">
@@ -1130,6 +1133,34 @@ window.fillCustomer=function(id){
   onShipChange(c.shipping||'');
   if(document.getElementById('no-ship-detail')) document.getElementById('no-ship-detail').value=c.shippingDetail||'';
   document.getElementById('customer-suggestions').innerHTML='';
+  _closeModal();
+}
+
+window.openCustomerQuickPick=function(){ renderCustomerQuickPick(''); }
+function renderCustomerQuickPick(q){
+  const customers=getCustomers()
+    .filter(c=> !q || c.name.includes(q) || c.phone.includes(q))
+    .sort((a,b)=>a.name.localeCompare(b.name,'zh-Hant'));
+  const listHTML = customers.map(c=>`
+    <div style="padding:10px 0;border-bottom:1px solid rgba(26,10,46,0.06);cursor:pointer;" onclick="fillCustomer('${c.id}')">
+      <div style="font-size:14px;">${c.name}</div>
+      <div style="font-size:12px;color:var(--text3);">${c.phone||'未留電話'} · ${c.shipping||'未設定寄送方式'}${c.shippingDetail?'：'+c.shippingDetail:''}</div>
+    </div>`).join('') || '<div style="text-align:center;color:var(--text3);font-size:13px;padding:20px;">無符合客戶</div>';
+  openModal(`
+    <div class="modal-title">選擇客戶</div>
+    <div class="search-bar" style="margin-bottom:10px;"><span class="search-icon">🔍</span><input type="text" id="cqp-search" placeholder="搜尋姓名或電話..." value="${q}" oninput="filterCustomerQuickPick(this.value)" autofocus></div>
+    <div id="cqp-list" style="max-height:55vh;overflow-y:auto;">${listHTML}</div>
+  `);
+}
+window.filterCustomerQuickPick=function(v){
+  const customers=getCustomers()
+    .filter(c=> !v || c.name.includes(v) || c.phone.includes(v))
+    .sort((a,b)=>a.name.localeCompare(b.name,'zh-Hant'));
+  document.getElementById('cqp-list').innerHTML = customers.map(c=>`
+    <div style="padding:10px 0;border-bottom:1px solid rgba(26,10,46,0.06);cursor:pointer;" onclick="fillCustomer('${c.id}')">
+      <div style="font-size:14px;">${c.name}</div>
+      <div style="font-size:12px;color:var(--text3);">${c.phone||'未留電話'} · ${c.shipping||'未設定寄送方式'}${c.shippingDetail?'：'+c.shippingDetail:''}</div>
+    </div>`).join('') || '<div style="text-align:center;color:var(--text3);font-size:13px;padding:20px;">無符合客戶</div>';
 }
 
 window.setOrderField=function(field,val,el){
@@ -1887,11 +1918,18 @@ window.processBulkImportFile=async function(){
 
 // ============ CUSTOMERS ============
 let customerSearch = '';
+// 客戶跟訂單的配對：優先用電話（唯一可靠），沒有電話時退而用姓名比對，
+// 避免大量沒有電話的歷史客戶全部互相配對到彼此的訂單。
+function customerOrders(c, orders){
+  if(c.phone) return orders.filter(o=>o.phone===c.phone);
+  return orders.filter(o=>!o.phone && (o.customer===c.name || o.recipientName===c.name));
+}
+
 function renderCustomers(){
   const orders = getOrders();
   const customers = getCustomers().filter(c=> !customerSearch || c.name.includes(customerSearch)||c.phone.includes(customerSearch));
   const cards = customers.map(c=>{
-    const cOrders = orders.filter(o=>o.phone===c.phone);
+    const cOrders = customerOrders(c, orders);
     const total = cOrders.reduce((sum,o)=>sum+(o.subtotal!=null?o.subtotal:o.items.reduce((s,it)=>s+itemLineTotal(it),0)),0);
     const last = cOrders.sort((a,b)=>b.date.localeCompare(a.date))[0];
     const initials = c.name.slice(-2);
@@ -1900,7 +1938,7 @@ function renderCustomers(){
         <div class="customer-avatar">${initials}</div>
         <div style="flex:1;">
           <div style="font-size:15px;font-weight:500;">${c.name}</div>
-          <div style="font-size:12px;color:var(--text2);">${c.phone} · ${c.shipping||'—'}</div>
+          <div style="font-size:12px;color:var(--text2);">${c.phone||'未留電話'} · ${c.shipping||'—'}</div>
         </div>
       </div>
       <div style="display:flex;gap:0;">
@@ -1923,6 +1961,7 @@ function renderCustomers(){
     <div style="display:flex;gap:8px;align-items:center;">
       <div class="search-bar" style="flex:1;"><span class="search-icon">🔍</span><input type="text" placeholder="搜尋客戶姓名或電話..." id="cust-search" value="${customerSearch}" oninput="setCustSearch(this.value)"></div>
       <button class="topbar-btn" style="background:rgba(26,10,46,0.08);flex-shrink:0;" onclick="refreshCustomersFromCloud()" title="同步雲端最新資料">🔄</button>
+      <button class="topbar-btn" style="background:rgba(26,10,46,0.08);flex-shrink:0;width:auto;padding:0 10px;font-size:12px;" onclick="openMergeDuplicateCustomers()" title="合併同名客戶">🔗 合併</button>
     </div>
     ${cards || '<div class="empty-state"><div class="emoji">👤</div><p>無客戶資料</p></div>'}
     <div style="height:40px;"></div>`;
@@ -1931,7 +1970,7 @@ window.setCustSearch=function(v){ customerSearch=v; renderPage('customers'); }
 
 window.openCustomerDetail=function(id){
   const c=getCustomers().find(x=>x.id===id); if(!c)return;
-  const orders=getOrders().filter(o=>o.phone===c.phone).sort((a,b)=>b.date.localeCompare(a.date));
+  const orders=customerOrders(c, getOrders()).sort((a,b)=>b.date.localeCompare(a.date));
   const orderList=orders.slice(0,8).map(o=>`
     <div style="padding:8px 0;border-bottom:1px solid rgba(26,10,46,0.06);cursor:pointer;" onclick="_closeModal();openOrderDetail('${o.id}')">
       <div style="display:flex;justify-content:space-between;">
@@ -2013,6 +2052,65 @@ window.deleteCustomer=async function(id){
   _closeModal();
   toast('✅ 客戶資料已刪除');
   renderPage('customers');
+}
+
+// ---- 合併同名客戶 ----
+window.openMergeDuplicateCustomers=function(){
+  const customers=getCustomers();
+  const groups={};
+  customers.forEach(c=>{ (groups[c.name]=groups[c.name]||[]).push(c); });
+  const dupGroups=Object.entries(groups).filter(([name,list])=>list.length>1);
+  if(!dupGroups.length){ toast('目前沒有同名的客戶資料'); return; }
+  openModal(`
+    <div class="modal-title">合併同名客戶</div>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:14px;line-height:1.6;">
+      找到 ${dupGroups.length} 組同名客戶。合併時會保留電話資料最完整的一筆，其餘的收件地址不會遺失——會自動整合進保留下來那筆的備註欄位，過往訂單紀錄完全不受影響。
+    </div>
+    <div style="max-height:55vh;overflow-y:auto;">
+      ${dupGroups.map(([name,list])=>`
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid rgba(26,10,46,0.06);">
+          <div>
+            <div style="font-size:14px;">${name}</div>
+            <div style="font-size:11px;color:var(--text3);">${list.length} 筆收件資料</div>
+          </div>
+          <button class="btn btn-secondary btn-sm" style="margin:0;" onclick="mergeCustomerGroup('${esc_js(name)}')">合併成一筆</button>
+        </div>`).join('')}
+    </div>
+    <button class="btn btn-secondary" style="width:100%;margin-top:14px;" onclick="_closeModal();renderPage('customers')">關閉</button>
+  `);
+}
+function esc_js(s){ return String(s).replace(/'/g,"\\'"); }
+window.mergeCustomerGroup=async function(name){
+  const customers=getCustomers();
+  const group=customers.filter(c=>c.name===name);
+  if(group.length<2) return;
+  // 選出資料最完整的一筆當作保留對象：優先有電話的，再優先有寄送地址的
+  const keep = [...group].sort((a,b)=>{
+    const score=(c)=> (c.phone?2:0) + (c.shippingDetail?1:0);
+    return score(b)-score(a);
+  })[0];
+  const others = group.filter(c=>c.id!==keep.id);
+  // 把其他筆的收件地址併進保留下來那筆的「寄送資訊」欄位，避免資料遺失（客戶資料表沒有獨立備註欄位）
+  const extraInfo = others.filter(c=>c.shipping||c.shippingDetail).map(c=>`${c.shipping||''} ${c.shippingDetail||''}`.trim()).filter(Boolean);
+  if(extraInfo.length){
+    keep.shippingDetail = [keep.shippingDetail, '（其他收件地址：'+extraInfo.join('；')+'）'].filter(Boolean).join(' ');
+  }
+  if(!keep.phone){ const withPhone=others.find(c=>c.phone); if(withPhone) keep.phone=withPhone.phone; }
+
+  const remaining = customers.filter(c=>!others.some(o=>o.id===c.id));
+  const idx = remaining.findIndex(c=>c.id===keep.id);
+  remaining[idx]=keep;
+  save('customers', remaining);
+  await pushCustomerToCloud(keep);
+  if(CLOUD_ENABLED){
+    for(const o of others){
+      try{ await sb.from('customers').delete().eq('id', o.id); }
+      catch(e){ console.error('刪除合併對象失敗', e); }
+    }
+  }
+  await logActivity('合併同名客戶', `${name}（${group.length}筆合併為1筆）`);
+  toast(`✅ 已合併「${name}」的 ${group.length} 筆資料`);
+  openMergeDuplicateCustomers();
 }
 window.copyCustomerShipping=async function(id, btn){
   const c=getCustomers().find(x=>x.id===id); if(!c) return;
