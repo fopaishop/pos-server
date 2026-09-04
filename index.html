@@ -279,7 +279,7 @@ html, body { height: 100%; overflow: hidden; font-family: 'Noto Sans TC', sans-s
 // ============ DATA ============
 const CATS = ['坤平將軍','坤昌','崇迪佛','佛祖','藥師佛','師傅自身','巴拉吉','人緣鳥','姐姐牌','路過','天靈蓋','狐仙','器官','女王佛','五古佛','伊霸女神','魅力之神','幽魂娜娜','大地之母','拉胡天神','象神','四面神','蝴蝶牌','芭蕉精','招財女神','澤鍍金','必打掩面佛','外星人佛牌','陶威素灣','財龜','座山佛','符館','古曼童','供奉尊','魯士','二哥豐','戒指','山神','愛情和合','帕嬰','鬼財神','馬食能','五眼四耳','周邊聖物','充電寶','希瓦利','天神','大鵬金翅鳥','貓路過','樹精','魂帕傭','人緣油','南平女神','烏巴庫','哈努曼','手鍊','飛頭降','人魚','蛇精','路翁','符管','其他'];
 const EFFECTS = ['招財','人緣','桃花','事業運','愛情','保護','化解小人','健康','逢凶化吉','財運','好運','催旺','開運','增加魅力','夫妻感情','考試順利','出行平安','生意興隆','升官','貴人運'];
-const MASTERS = ['月亮師傅','龍婆崇','阿贊素威','帕甘寺','龍婆坤','龍婆本','大城府寺廟','清邁古廟','曼谷四面佛','阿贊奴','龍婆帕','其他'];
+const MASTERS = ['月亮師傅','龍普Moon','蝶王古巴吉士納','阿贊歐','古巴文利','龍波爹','龍波言','阿贊摩納','龍波碧納','龍波翠','檳城鬼王','阿贊明','阿贊瓦魯','古巴迷','古巴蘇斌','龍波烏東沙','阿贊蒙','龍波貴','龍普Tim','龍波Gee','大法會','其他'];
 const STATUS_LIST = ['全部','待寄出','待選鍊子','待自取','已寄出','取消','退貨'];
 const STATUS_BADGE = { '待寄出':'b-ship','待選鍊子':'b-chain','待自取':'b-pick','已寄出':'b-done','取消':'b-cancel','退貨':'b-return' };
 const SHIP_LIST = ['門市自取','711','黑貓'];
@@ -577,6 +577,29 @@ document.getElementById('tabbar').addEventListener('click', e=>{
   const page = btn.dataset.page;
   navigateTo(page);
 });
+
+// 電腦版滑鼠沒有觸控滑動手勢，這裡把「滾輪」跟「按住拖曳」都轉成頁籤列的橫向捲動
+(function enableTabbarDesktopScroll(){
+  const bar = document.getElementById('tabbar');
+  bar.addEventListener('wheel', e=>{
+    if(e.deltaY===0) return;
+    bar.scrollLeft += e.deltaY;
+    e.preventDefault();
+  }, { passive:false });
+
+  let isDown=false, startX=0, startScroll=0, moved=false;
+  bar.addEventListener('mousedown', e=>{ isDown=true; moved=false; startX=e.pageX; startScroll=bar.scrollLeft; });
+  window.addEventListener('mouseup', ()=>{ isDown=false; });
+  bar.addEventListener('mouseleave', ()=>{ isDown=false; });
+  bar.addEventListener('mousemove', e=>{
+    if(!isDown) return;
+    const dx = e.pageX-startX;
+    if(Math.abs(dx)>3) moved=true;
+    bar.scrollLeft = startScroll - dx;
+  });
+  // 拖曳超過幾個像素時，放開滑鼠不要誤觸發下面的 tab 點擊
+  bar.addEventListener('click', e=>{ if(moved){ e.stopPropagation(); e.preventDefault(); } }, true);
+})();
 
 function navigateTo(page){
   if(!canAccess(page)){ toast('⚠ 你的身份沒有這個頁面的權限'); return; }
@@ -1217,18 +1240,23 @@ window.submitOrder=async function(){
 }
 
 // ============ FILTER ============
-let filterState = { q:'', cats:[], effects:[], type:'不限', budgetMin:'', budgetMax:'', master:'' };
+let filterState = { q:'', cats:[], effects:[], masters:[], type:'不限', budgetMin:'', budgetMax:'' };
 function renderFilter(){
-  const catChips = CATS.slice(0,20).map(c=>`<span class="chip${filterState.cats.includes(c)?' on':''}" onclick="toggleFilter('cats','${c}',this)">${c}</span>`).join('') + `<span class="chip" onclick="showAllCats()">更多...</span>`;
-  const effChips = EFFECTS.map(e=>`<span class="chip${filterState.effects.includes(e)?' on':''}" onclick="toggleFilter('effects','${e}',this)">${e}</span>`).join('');
+  const cats = load('cats')||CATS;
+  const effs = load('effects')||EFFECTS;
+  const masters = load('masters')||MASTERS;
+  const catChips = cats.slice(0,20).map(c=>`<span class="chip${filterState.cats.includes(c)?' on':''}" onclick="toggleFilter('cats','${c}',this)">${c}</span>`).join('') + `<span class="chip" onclick="showAllCats()">更多...</span>`;
+  const effChips = effs.map(e=>`<span class="chip${filterState.effects.includes(e)?' on':''}" onclick="toggleFilter('effects','${e}',this)">${e}</span>`).join('');
+  const masterChips = masters.map(m=>`<span class="chip${filterState.masters.includes(m)?' on':''}" onclick="toggleFilter('masters','${m}',this)">${m}</span>`).join('');
   
   let results = [];
-  const hasFilter = filterState.q||filterState.cats.length||filterState.effects.length||filterState.type!=='不限'||filterState.budgetMin||filterState.budgetMax;
+  const hasFilter = filterState.q||filterState.cats.length||filterState.effects.length||filterState.masters.length||filterState.type!=='不限'||filterState.budgetMin||filterState.budgetMax;
   if(hasFilter){
     results = getProducts().filter(p=>{
       if(filterState.q && !(p.name.includes(filterState.q)||p.code.includes(filterState.q)||p.category.includes(filterState.q)||(p.master||'').includes(filterState.q))) return false;
       if(filterState.cats.length && !filterState.cats.includes(p.category)) return false;
       if(filterState.effects.length && !filterState.effects.some(e=>p.effects.includes(e))) return false;
+      if(filterState.masters.length && !filterState.masters.includes(p.master)) return false;
       if(filterState.type!=='不限' && p.type!==filterState.type) return false;
       if(filterState.budgetMin && p.price<parseInt(filterState.budgetMin)) return false;
       if(filterState.budgetMax && p.price>parseInt(filterState.budgetMax)) return false;
@@ -1269,11 +1297,24 @@ function renderFilter(){
       </div>
     </div>
     <div style="background:var(--white);border-radius:var(--radius);padding:14px;margin-bottom:12px;border:1px solid rgba(26,10,46,0.06);">
-      <div class="sec" style="margin:0 0 10px;">商品種類</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin:0 0 10px;">
+        <div class="sec" style="margin:0;">商品種類</div>
+        <button onclick="openManageListModal('cats')" style="border:none;background:none;color:var(--gold);font-size:12px;cursor:pointer;padding:0;">✏️ 編輯／新增</button>
+      </div>
       <div class="chip-row">${catChips}</div>
     </div>
     <div style="background:var(--white);border-radius:var(--radius);padding:14px;margin-bottom:12px;border:1px solid rgba(26,10,46,0.06);">
-      <div class="sec" style="margin:0 0 10px;">功效需求</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin:0 0 10px;">
+        <div class="sec" style="margin:0;">製作師傅</div>
+        <button onclick="openManageListModal('masters')" style="border:none;background:none;color:var(--gold);font-size:12px;cursor:pointer;padding:0;">✏️ 編輯／新增</button>
+      </div>
+      <div class="chip-row">${masterChips}</div>
+    </div>
+    <div style="background:var(--white);border-radius:var(--radius);padding:14px;margin-bottom:12px;border:1px solid rgba(26,10,46,0.06);">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin:0 0 10px;">
+        <div class="sec" style="margin:0;">功效需求</div>
+        <button onclick="openManageListModal('effects')" style="border:none;background:none;color:var(--gold);font-size:12px;cursor:pointer;padding:0;">✏️ 編輯／新增</button>
+      </div>
       <div class="chip-row">${effChips}</div>
     </div>
     <button class="btn btn-gold" onclick="runFilter()">搜尋符合商品</button>
@@ -1295,12 +1336,57 @@ window.runFilter=function(){
   filterState.budgetMax=document.getElementById('f-max')?.value||'';
   renderPage('filter');
 }
-window.clearFilter=function(){ filterState={q:'',cats:[],effects:[],type:'不限',budgetMin:'',budgetMax:'',master:''}; renderPage('filter'); }
+window.clearFilter=function(){ filterState={q:'',cats:[],effects:[],masters:[],type:'不限',budgetMin:'',budgetMax:''}; renderPage('filter'); }
 window.showAllCats=function(){
-  const html=`<div class="modal-title">選擇種類</div><div class="chip-row" style="max-height:60vh;overflow-y:auto;">` + CATS.map(c=>`<span class="chip${filterState.cats.includes(c)?' on':''}" onclick="toggleFilterCat('${c}',this)">${c}</span>`).join('') + `</div><button class="btn btn-primary" onclick="_closeModal();renderPage('filter')">確認</button>`;
+  const cats = load('cats')||CATS;
+  const html=`<div class="modal-title">選擇種類</div><div class="chip-row" style="max-height:60vh;overflow-y:auto;">` + cats.map(c=>`<span class="chip${filterState.cats.includes(c)?' on':''}" onclick="toggleFilterCat('${c}',this)">${c}</span>`).join('') + `</div><button class="btn btn-primary" onclick="_closeModal();renderPage('filter')">確認</button>`;
   openModal(html);
 }
 window.toggleFilterCat=function(val,el){ const i=filterState.cats.indexOf(val); if(i>=0) filterState.cats.splice(i,1); else filterState.cats.push(val); el.classList.toggle('on'); }
+
+// ---- 種類/師傅/功效 清單管理（新增、刪除選項） ----
+const LIST_CONFIG = {
+  cats: { key:'cats', label:'商品種類', fallback: CATS },
+  effects: { key:'effects', label:'功效需求', fallback: EFFECTS },
+  masters: { key:'masters', label:'製作師傅', fallback: MASTERS }
+};
+window.openManageListModal=function(type){ renderManageListModal(type); }
+function renderManageListModal(type){
+  const cfg = LIST_CONFIG[type];
+  const list = load(cfg.key)||cfg.fallback;
+  openModal(`
+    <div class="modal-title">管理${cfg.label}</div>
+    <div style="max-height:50vh;overflow-y:auto;margin-bottom:14px;">
+      ${list.map((item,i)=>`
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid rgba(26,10,46,0.06);">
+          <span style="font-size:13px;">${item}</span>
+          <button onclick="removeManageListItem('${type}',${i})" style="width:26px;height:26px;border-radius:50%;border:none;background:#fce4e4;color:#c0392b;cursor:pointer;">✕</button>
+        </div>`).join('')}
+    </div>
+    <div style="display:flex;gap:8px;">
+      <input class="form-input" id="ml-new-item" placeholder="新增${cfg.label}..." style="flex:1;">
+      <button class="btn btn-gold" style="width:auto;margin-top:0;padding:0 16px;" onclick="addManageListItem('${type}')">新增</button>
+    </div>
+    <button class="btn btn-secondary" style="width:100%;margin-top:14px;" onclick="_closeModal();renderPage('filter')">完成</button>
+  `);
+}
+window.removeManageListItem=function(type,i){
+  const cfg=LIST_CONFIG[type];
+  const list=[...(load(cfg.key)||cfg.fallback)];
+  list.splice(i,1);
+  save(cfg.key,list);
+  renderManageListModal(type);
+}
+window.addManageListItem=function(type){
+  const cfg=LIST_CONFIG[type];
+  const val=document.getElementById('ml-new-item')?.value?.trim();
+  if(!val){ toast('⚠ 請輸入名稱'); return; }
+  const list=[...(load(cfg.key)||cfg.fallback)];
+  if(list.includes(val)){ toast('⚠ 已存在相同項目'); return; }
+  list.push(val);
+  save(cfg.key,list);
+  renderManageListModal(type);
+}
 
 // ---- 客服用：一鍵複製介紹文字 / 商品圖片，方便貼到 LINE 聊天室 ----
 function buildIntroText(p){
