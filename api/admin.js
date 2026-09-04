@@ -8,17 +8,35 @@
 
 const { createClient } = require('@supabase/supabase-js');
 
-const supabaseAdmin = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY,
-  { auth: { autoRefreshToken: false, persistSession: false } }
-);
+let supabaseAdmin = null;
+function getSupabaseAdmin(){
+  if (supabaseAdmin) return supabaseAdmin;
+  if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    throw new Error('伺服器缺少 SUPABASE_URL 或 SUPABASE_SERVICE_ROLE_KEY 環境變數，請檢查 Vercel 專案設定並重新部署');
+  }
+  supabaseAdmin = createClient(
+    process.env.SUPABASE_URL,
+    process.env.SUPABASE_SERVICE_ROLE_KEY,
+    { auth: { autoRefreshToken: false, persistSession: false } }
+  );
+  return supabaseAdmin;
+}
 
 module.exports = async function handler(req, res) {
+  try {
+    return await handleRequest(req, res);
+  } catch (e) {
+    console.error('未預期的錯誤:', e);
+    return res.status(500).json({ error: e.message || '伺服器發生未預期的錯誤' });
+  }
+};
+
+async function handleRequest(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: '只接受 POST 請求' });
   }
 
+  const supabaseAdmin = getSupabaseAdmin();
   const { action, payload, accessToken } = req.body || {};
   if (!accessToken) return res.status(401).json({ error: '未登入' });
 
