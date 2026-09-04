@@ -206,6 +206,13 @@ html, body { height: 100%; overflow: hidden; font-family: 'Noto Sans TC', sans-s
 .photo-upload { width: 80px; height: 80px; border-radius: 10px; border: 1.5px dashed rgba(26,10,46,0.25); display: flex; align-items: center; justify-content: center; cursor: pointer; font-size: 24px; background: var(--surface); }
 .photo-preview { width: 80px; height: 80px; border-radius: 10px; object-fit: cover; cursor: pointer; }
 
+.budget-slider-wrap::before { content: ''; position: absolute; left: 0; right: 0; top: 14px; height: 4px; background: rgba(26,10,46,0.15); border-radius: 2px; }
+.budget-slider-wrap input[type=range] { position: absolute; left: 0; right: 0; top: 0; width: 100%; height: 32px; margin: 0; -webkit-appearance: none; appearance: none; background: transparent; pointer-events: none; }
+.budget-slider-wrap input[type=range]::-webkit-slider-runnable-track { height: 4px; background: transparent; }
+.budget-slider-wrap input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; pointer-events: all; width: 18px; height: 18px; border-radius: 50%; background: var(--gold); border: 2px solid var(--deep); cursor: pointer; margin-top: 7px; }
+.budget-slider-wrap input[type=range]::-moz-range-track { height: 4px; background: transparent; }
+.budget-slider-wrap input[type=range]::-moz-range-thumb { pointer-events: all; width: 18px; height: 18px; border-radius: 50%; background: var(--gold); border: 2px solid var(--deep); cursor: pointer; }
+
 /* STATUS FILTER ROW */
 .status-row { display: flex; gap: 6px; overflow-x: auto; margin-bottom: 14px; padding-bottom: 2px; scrollbar-width: none; }
 .status-row::-webkit-scrollbar { display: none; }
@@ -312,8 +319,8 @@ function load(k) { try { const r=localStorage.getItem('bpd_'+k); return r?JSON.p
 function save(k,d) { try { localStorage.setItem('bpd_'+k, JSON.stringify(d)); } catch(e){} }
 
 // 把 Supabase 資料表格式跟系統原本的商品物件格式互轉
-function rowToProduct(r){ return { id:r.id, code:r.code, category:r.category, name:r.name, type:r.type, master:r.master, year:r.year, stock:r.stock, price:r.price, effects:r.effects||[], material:r.material, feature:r.feature, image:r.image }; }
-function productToRow(p){ return { id:p.id, tenant_id:TENANT_ID, code:p.code, category:p.category, name:p.name, type:p.type, master:p.master, year:String(p.year), stock:p.stock, price:p.price, effects:p.effects, material:p.material, feature:p.feature, image:p.image, updated_by:'' }; }
+function rowToProduct(r){ return { id:r.id, code:r.code, category:r.category, name:r.name, type:r.type, master:r.master, year:r.year, stock:r.stock, price:r.price, effects:r.effects||[], material:r.material, feature:r.feature, image:r.image, images:r.images||[] }; }
+function productToRow(p){ return { id:p.id, tenant_id:TENANT_ID, code:p.code, category:p.category, name:p.name, type:p.type, master:p.master, year:String(p.year), stock:p.stock, price:p.price, effects:p.effects, material:p.material, feature:p.feature, image:p.image, images:p.images||(p.image?[p.image]:[]), updated_by:'' }; }
 
 // 開機時從雲端把最新商品資料抓下來，寫進本機快取（localStorage），
 // 這樣所有頁面原本同步讀取 getProducts() 的寫法都不用改，
@@ -1432,9 +1439,14 @@ function renderFilter(){
     <div style="background:var(--white);border-radius:var(--radius);padding:14px;margin-bottom:12px;border:1px solid rgba(26,10,46,0.06);">
       <div class="sec" style="margin:0 0 10px;">預算範圍 (TWD)</div>
       <div class="form-row">
-        <input class="form-input" type="number" placeholder="最低" id="f-min" value="${filterState.budgetMin}">
-        <input class="form-input" type="number" placeholder="最高" id="f-max" value="${filterState.budgetMax}">
+        <input class="form-input" type="number" placeholder="最低" id="f-min" value="${filterState.budgetMin}" oninput="syncBudgetInputsToSliders()">
+        <input class="form-input" type="number" placeholder="最高" id="f-max" value="${filterState.budgetMax}" oninput="syncBudgetInputsToSliders()">
       </div>
+      <div class="budget-slider-wrap" style="position:relative;height:32px;margin-top:16px;">
+        <input type="range" id="f-min-slider" min="0" max="${BUDGET_MAX}" step="500" value="${filterState.budgetMin||0}" oninput="onBudgetSliderInput('min', this.value)">
+        <input type="range" id="f-max-slider" min="0" max="${BUDGET_MAX}" step="500" value="${filterState.budgetMax||BUDGET_MAX}" oninput="onBudgetSliderInput('max', this.value)">
+      </div>
+      <div id="budget-range-label" style="text-align:center;font-size:12px;color:var(--text2);margin-top:2px;">${budgetLabel()}</div>
     </div>
     <div style="background:var(--white);border-radius:var(--radius);padding:14px;margin-bottom:12px;border:1px solid rgba(26,10,46,0.06);">
       <div class="sec" style="margin:0 0 10px;">正牌 / 陰牌</div>
@@ -1470,6 +1482,36 @@ function renderFilter(){
     <div id="filter-results" style="margin-top:16px;">${filterResultsHTML()}</div>
     <div style="height:80px;"></div>
     <button class="fab" onclick="openNewProduct()">＋</button>`;
+}
+
+const BUDGET_MAX = 60000;
+function budgetLabel(){
+  const min = filterState.budgetMin ? parseInt(filterState.budgetMin) : 0;
+  const max = filterState.budgetMax ? parseInt(filterState.budgetMax) : BUDGET_MAX;
+  return `$${min.toLocaleString()} - $${max.toLocaleString()}${!filterState.budgetMax?'+':''}`;
+}
+window.onBudgetSliderInput=function(which, val){
+  val = parseInt(val);
+  const minEl=document.getElementById('f-min-slider'), maxEl=document.getElementById('f-max-slider');
+  if(which==='min'){
+    if(val > parseInt(maxEl.value)){ val = parseInt(maxEl.value); minEl.value = val; }
+  } else {
+    if(val < parseInt(minEl.value)){ val = parseInt(minEl.value); maxEl.value = val; }
+  }
+  filterState.budgetMin = parseInt(minEl.value) > 0 ? minEl.value : '';
+  filterState.budgetMax = parseInt(maxEl.value) < BUDGET_MAX ? maxEl.value : '';
+  const minInput=document.getElementById('f-min'), maxInput=document.getElementById('f-max');
+  if(minInput) minInput.value = filterState.budgetMin;
+  if(maxInput) maxInput.value = filterState.budgetMax;
+  const lbl=document.getElementById('budget-range-label'); if(lbl) lbl.textContent = budgetLabel();
+}
+window.syncBudgetInputsToSliders=function(){
+  filterState.budgetMin = document.getElementById('f-min')?.value || '';
+  filterState.budgetMax = document.getElementById('f-max')?.value || '';
+  const minEl=document.getElementById('f-min-slider'), maxEl=document.getElementById('f-max-slider');
+  if(minEl) minEl.value = filterState.budgetMin || 0;
+  if(maxEl) maxEl.value = filterState.budgetMax || BUDGET_MAX;
+  const lbl=document.getElementById('budget-range-label'); if(lbl) lbl.textContent = budgetLabel();
 }
 
 window.setFilterQ=function(v){
@@ -1564,10 +1606,8 @@ window.copyIntroText=async function(id, btn){
     setTimeout(()=>{ btn.textContent = original; }, 1600);
   }catch(e){ alert('複製失敗，請手動選取：\n\n'+text); }
 }
-window.copyProductImage=async function(id, btn){
-  const p = getProductById(id); if(!p||!p.image) return;
+async function copyImageUrl(url, btn){
   try{
-    // 先轉成 PNG，因為部分瀏覽器（尤其 Chrome）複製圖片到剪貼簿只接受 image/png
     const pngBlob = await new Promise((resolve, reject)=>{
       const img = new Image();
       img.onload = ()=>{
@@ -1577,7 +1617,7 @@ window.copyProductImage=async function(id, btn){
         canvas.toBlob(b=> b?resolve(b):reject(new Error('轉檔失敗')), 'image/png');
       };
       img.onerror = reject;
-      img.src = p.image;
+      img.src = url;
     });
     await navigator.clipboard.write([ new ClipboardItem({ 'image/png': pngBlob }) ]);
     const original = btn.textContent;
@@ -1587,6 +1627,16 @@ window.copyProductImage=async function(id, btn){
     console.error(e);
     toast('⚠ 這個瀏覽器不支援複製圖片，改用長按圖片存檔');
   }
+}
+window.copyProductImage=async function(id, btn){
+  const p = getProductById(id); if(!p||!p.image) return;
+  await copyImageUrl(p.image, btn);
+}
+window.copyProductImageAt=async function(id, idx, btn){
+  const p = getProductById(id); if(!p) return;
+  const url = (p.images&&p.images[idx]) || p.image;
+  if(!url) return;
+  await copyImageUrl(url, btn);
 }
 
 
@@ -1631,8 +1681,18 @@ window.setProdSearch=function(v){
 
 window.openProductDetail=function(id){
   const p=getProductById(id); if(!p)return;
+  const imgs = (p.images&&p.images.length?p.images:(p.image?[p.image]:[]));
+  const gallery = imgs.length ? `
+    <div style="display:flex;gap:8px;overflow-x:auto;margin-bottom:14px;">
+      ${imgs.map((img,i)=>`
+        <div style="flex-shrink:0;">
+          <img src="${img}" style="width:100px;height:100px;object-fit:cover;border-radius:10px;">
+          <button class="btn btn-secondary btn-sm" style="width:100px;margin-top:4px;padding:6px;font-size:11px;" id="detail-cp-img-${i}" onclick="copyProductImageAt('${id}',${i},this)">🖼 複製</button>
+        </div>`).join('')}
+    </div>` : '';
   openModal(`
     <div class="modal-title">${p.name}</div>
+    ${gallery}
     <div class="detail-row"><span class="detail-key">商品編號</span><span class="detail-val">${p.code}</span></div>
     <div class="detail-row"><span class="detail-key">種類</span><span class="detail-val">${p.category}</span></div>
     <div class="detail-row"><span class="detail-key">正/陰牌</span><span class="detail-val">${p.type}</span></div>
@@ -1643,6 +1703,7 @@ window.openProductDetail=function(id){
     <div class="detail-row"><span class="detail-key">功效</span><span class="detail-val">${p.effects.join('、')}</span></div>
     <div class="detail-row"><span class="detail-key">庫存</span><span class="detail-val ${p.stock<=1?'stock-low':''}">${p.stock} 件</span></div>
     <div class="detail-row"><span class="detail-key">售價</span><span class="detail-val" style="font-weight:500;font-size:15px;">$${p.price.toLocaleString()}</span></div>
+    <button class="btn btn-secondary" style="width:100%;margin-top:10px;" id="detail-cp-intro" onclick="copyIntroText('${id}', this)">📋 複製介紹文字</button>
     <div style="margin-top:16px;">
       <label class="form-label">調整庫存</label>
       <div style="display:flex;gap:8px;">
@@ -1671,6 +1732,7 @@ window.openNewProduct=function(){
   const cats=load('cats')||CATS;
   const effs=load('effects')||EFFECTS;
   let selCats=[], selEffs=[], selType='正牌', selMaster='';
+  _photoSlots = [];
   
   openModal(`
     <div class="modal-title">新增商品</div>
@@ -1707,27 +1769,43 @@ window.openNewProduct=function(){
       <div class="chip-row" id="np-effects">${effs.map(e=>`<span class="chip" onclick="this.classList.toggle('on')">${e}</span>`).join('')}</div>
     </div>
     <div class="form-block">
-      <label class="form-label">商品照片</label>
-      <div style="display:flex;gap:10px;align-items:center;">
-        <label class="photo-upload" for="np-photo-file">📷</label>
-        <input type="file" id="np-photo-file" accept="image/*" style="display:none;" onchange="previewPhoto(this)">
-        <img id="np-photo-preview" style="display:none;" class="photo-preview" onclick="document.getElementById('np-photo-file').click()">
-      </div>
+      <label class="form-label">商品照片（最多3張）</label>
+      <div id="photo-slots-container">${photoSlotsHTML()}</div>
     </div>
     <button class="btn btn-gold" onclick="saveNewProduct()">確認建檔</button>
     <div style="height:20px;"></div>
   `);
 }
 
-window.previewPhoto=function(input){
+// ---- 商品照片（最多3張），新增/編輯商品共用 ----
+let _photoSlots = [];
+let _photoSlotTarget = 0;
+function photoSlotsHTML(){
+  let html = '<div style="display:flex;gap:10px;flex-wrap:wrap;">';
+  for(let i=0;i<3;i++){
+    if(_photoSlots[i]){
+      html += `<div style="position:relative;">
+        <img src="${_photoSlots[i]}" class="photo-preview">
+        <button onclick="removePhotoSlot(${i})" style="position:absolute;top:-6px;right:-6px;width:22px;height:22px;border-radius:50%;background:#c0392b;color:#fff;border:none;font-size:12px;cursor:pointer;">✕</button>
+      </div>`;
+    } else {
+      html += `<label class="photo-upload" onclick="triggerPhotoUpload(${i})">📷</label>`;
+    }
+  }
+  html += '</div><input type="file" id="photo-slot-input" accept="image/*" style="display:none;" onchange="onPhotoSlotFile(this)">';
+  return html;
+}
+window.triggerPhotoUpload=function(i){ _photoSlotTarget=i; document.getElementById('photo-slot-input').click(); }
+window.onPhotoSlotFile=function(input){
   if(!input.files||!input.files[0]) return;
   const r=new FileReader();
-  r.onload=function(e){ 
-    const img=document.getElementById('np-photo-preview');
-    img.src=e.target.result; img.style.display='block';
-    document.querySelector('.photo-upload').style.display='none';
-  };
+  r.onload=function(e){ _photoSlots[_photoSlotTarget]=e.target.result; refreshPhotoSlotsUI(); };
   r.readAsDataURL(input.files[0]);
+}
+window.removePhotoSlot=function(i){ _photoSlots.splice(i,1); refreshPhotoSlotsUI(); }
+function refreshPhotoSlotsUI(){
+  const el = document.getElementById('photo-slots-container');
+  if(el) el.innerHTML = photoSlotsHTML();
 }
 
 // ---- 編輯商品 ----
@@ -1736,6 +1814,7 @@ window.openEditProduct=function(id){
   const masters=load('masters')||MASTERS;
   const cats=load('cats')||CATS;
   const effs=load('effects')||EFFECTS;
+  _photoSlots = p.images && p.images.length ? [...p.images] : (p.image ? [p.image] : []);
 
   openModal(`
     <div class="modal-title">編輯商品</div>
@@ -1770,27 +1849,12 @@ window.openEditProduct=function(id){
       <div class="chip-row" id="ep-effects">${[...new Set([...effs, ...p.effects])].map(e=>`<span class="chip${p.effects.includes(e)?' on':''}" onclick="this.classList.toggle('on')">${e}</span>`).join('')}</div>
     </div>
     <div class="form-block">
-      <label class="form-label">商品照片</label>
-      <div style="display:flex;gap:10px;align-items:center;">
-        <label class="photo-upload" for="ep-photo-file" style="display:${p.image?'none':'flex'};">📷</label>
-        <input type="file" id="ep-photo-file" accept="image/*" style="display:none;" onchange="previewEditPhoto(this)">
-        <img id="ep-photo-preview" src="${p.image||''}" style="display:${p.image?'block':'none'};" class="photo-preview" onclick="document.getElementById('ep-photo-file').click()">
-      </div>
+      <label class="form-label">商品照片（最多3張）</label>
+      <div id="photo-slots-container">${photoSlotsHTML()}</div>
     </div>
     <button class="btn btn-gold" onclick="saveEditProduct('${id}')">儲存變更</button>
     <div style="height:20px;"></div>
   `);
-}
-window.previewEditPhoto=function(input){
-  if(!input.files||!input.files[0]) return;
-  const r=new FileReader();
-  r.onload=function(e){
-    const img=document.getElementById('ep-photo-preview');
-    img.src=e.target.result; img.style.display='block';
-    const uploadBtn = document.querySelector('label[for="ep-photo-file"]');
-    if(uploadBtn) uploadBtn.style.display='none';
-  };
-  r.readAsDataURL(input.files[0]);
 }
 window.saveEditProduct=async function(id){
   const products = getProducts();
@@ -1809,10 +1873,10 @@ window.saveEditProduct=async function(id){
   const material=document.getElementById('ep-material')?.value||'';
   const feature=document.getElementById('ep-feature')?.value||'';
   const effects=[...document.querySelectorAll('#ep-effects .chip.on')].map(c=>c.textContent);
-  const photoPreview=document.getElementById('ep-photo-preview');
-  const image=photoPreview?.style.display!=='none'?(photoPreview?.src||''):'';
+  const images=_photoSlots.filter(Boolean);
+  const image=images[0]||'';
 
-  const updated = { ...products[i], name, price, category:cat, type, master, year, stock, material, feature, effects, image };
+  const updated = { ...products[i], name, price, category:cat, type, master, year, stock, material, feature, effects, image, images };
   products[i] = updated;
   save('products', products);
   await pushProductToCloud(updated);
@@ -1859,9 +1923,8 @@ window.saveNewProduct=async function(){
   const material=document.getElementById('np-material')?.value||'';
   const feature=document.getElementById('np-feature')?.value||'';
   const effects=[...document.querySelectorAll('#np-effects .chip.on')].map(c=>c.textContent);
-  const photoFile=document.getElementById('np-photo-file');
-  const photoPreview=document.getElementById('np-photo-preview');
-  const image=photoPreview?.style.display!=='none'?photoPreview?.src||'':'';
+  const images=_photoSlots.filter(Boolean);
+  const image=images[0]||'';
   
   const catCode=cat.substring(0,2).toUpperCase();
   const ym=year.slice(-2)+String(new Date().getMonth()+1).padStart(2,'0');
@@ -1869,7 +1932,7 @@ window.saveNewProduct=async function(){
   const sameCode=products.filter(p=>p.code.startsWith(catCode)).length+1;
   const code=`${catCode}${year}-${String(sameCode).padStart(3,'0')}`;
   
-  const newProduct = { id:catCode+Date.now(), code, category:cat, name, type, master, year, stock, price, effects, material, feature, image };
+  const newProduct = { id:catCode+Date.now(), code, category:cat, name, type, master, year, stock, price, effects, material, feature, image, images };
   products.unshift(newProduct);
   save('products',products);
   await pushProductToCloud(newProduct);
@@ -1937,6 +2000,7 @@ window.processBulkImportFile=async function(){
           material: String(r['材料']||'').trim(),
           feature: String(r['特色']||'').trim(),
           image: String(r['圖片網址']||'').trim(),
+          images: String(r['圖片網址']||'').trim() ? [String(r['圖片網址']).trim()] : [],
         };
       }).filter(r=>r.code);
 
@@ -2367,11 +2431,6 @@ const PERMISSION_LABELS = { 'orders':'訂單管理', 'new-order':'建立訂單',
 function renderSettings(){
   if(currentRole!=='admin') return `<div class="empty-state"><div class="emoji">🔒</div><p>只有管理員能開啟這個頁面</p></div>`;
   const staffPerm = PERMISSIONS.staff||{};
-  const adminRows = Object.keys(PERMISSION_LABELS).map(key=>`
-    <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid rgba(26,10,46,0.06);">
-      <span style="font-size:13px;color:var(--text2);">${PERMISSION_LABELS[key]}</span>
-      <span class="switch-opt on" style="min-width:60px;pointer-events:none;opacity:0.85;">開放</span>
-    </div>`).join('');
   const rows = Object.keys(PERMISSION_LABELS).map(key=>`
     <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-bottom:1px solid rgba(26,10,46,0.06);">
       <span style="font-size:14px;">${PERMISSION_LABELS[key]}</span>
@@ -2381,14 +2440,8 @@ function renderSettings(){
     </div>`).join('');
   return `
     <div style="background:var(--white);border-radius:var(--radius);padding:16px;margin-bottom:14px;border:1px solid rgba(26,10,46,0.06);">
-      <div class="sec" style="margin:0 0 4px;">👑 管理員（固定，不可調整）</div>
-      <div style="font-size:12px;color:var(--text3);margin-bottom:10px;">管理員永遠擁有所有功能的完整權限</div>
-      ${adminRows}
-    </div>
-
-    <div style="background:var(--white);border-radius:var(--radius);padding:16px;margin-bottom:14px;border:1px solid rgba(26,10,46,0.06);">
-      <div class="sec" style="margin:0 0 4px;">🧑‍💼 客服/門市人員（可編輯）</div>
-      <div style="font-size:12px;color:var(--text3);margin-bottom:10px;">點擊「開放/關閉」調整這個身份能看到的功能，會同步到所有裝置</div>
+      <div class="sec" style="margin:0 0 4px;">身份權限</div>
+      <div style="font-size:12px;color:var(--text3);margin-bottom:10px;">管理員固定擁有所有權限，以下設定套用在「客服/門市人員」身份，會同步到所有裝置</div>
       ${rows}
     </div>
 
