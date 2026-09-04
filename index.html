@@ -51,8 +51,11 @@ html, body { height: 100%; overflow: hidden; font-family: 'Noto Sans TC', sans-s
 .tab:not(.active) { background: rgba(255,255,255,0.07); color: var(--text3); }
 
 /* SCROLL CONTENT */
-.content { flex: 1; overflow-y: auto; padding: 16px; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
-.content::-webkit-scrollbar { display: none; }
+.content { flex: 1; overflow-y: auto; padding: 16px; scrollbar-width: thin; scrollbar-color: rgba(26,10,46,0.25) transparent; -webkit-overflow-scrolling: touch; }
+.content::-webkit-scrollbar { display: block; width: 6px; }
+.content::-webkit-scrollbar-track { background: transparent; }
+.content::-webkit-scrollbar-thumb { background: rgba(26,10,46,0.25); border-radius: 3px; }
+.content::-webkit-scrollbar-thumb:hover { background: rgba(26,10,46,0.4); }
 
 /* PAGES */
 .page { display: none; }
@@ -571,6 +574,13 @@ async function logActivity(action, detail){
   catch(e){ console.error('寫入操作紀錄失敗', e); }
 }
 
+window.goToOrdersFiltered=function(status, month){
+  orderFilter = status;
+  orderMonthFilter = month;
+  orderSearch = '';
+  navigateTo('orders');
+}
+
 // ============ NAVIGATION ============
 let currentPage = 'home';
 document.getElementById('tabbar').addEventListener('click', e=>{
@@ -668,7 +678,7 @@ function renderHome(){
   
   const shipCards = todayShip.slice(0,3).map(o=>{
     const items = o.items.map(it=>`${itemName(it)} ×${it.qty}`).join('、');
-    const noGift = o.items.some(it=>!['手鍊','符管'].includes(itemCategory(it))) && !o.gift;
+    const noGift = !['已寄出','取消','退貨'].includes(o.status) && o.items.some(it=>!['手鍊','符管'].includes(itemCategory(it))) && !o.gift;
     return `<div class="order-card" onclick="openOrderDetail('${o.id}')">
       <div class="order-head">
         <div><div class="order-name">${o.customer}</div><div class="order-id">#${o.id}</div></div>
@@ -686,22 +696,22 @@ function renderHome(){
       ${CLOUD_ENABLED?'<button class="topbar-btn" style="width:auto;padding:4px 10px;background:rgba(45,122,74,0.15);color:#2d7a4a;font-size:11px;" onclick="migrateLocalToCloud()">上傳本機資料</button>':''}
     </div>
     <div class="stat-grid">
-      <div class="stat-card accent">
+      <div class="stat-card accent" style="cursor:pointer;" onclick="goToOrdersFiltered('全部', curMonth)">
         <div class="stat-label">本月銷售額</div>
         <div class="stat-val">$${totalSales.toLocaleString()}</div>
         <div class="stat-tag tag-up">↑ 持續成長中</div>
       </div>
-      <div class="stat-card">
+      <div class="stat-card" style="cursor:pointer;" onclick="goToOrdersFiltered('待寄出', '')">
         <div class="stat-label">今日待出貨</div>
         <div class="stat-val" style="color:#c0392b;">${todayShip.length} 筆</div>
         <div class="stat-tag tag-warn">需處理</div>
       </div>
-      <div class="stat-card">
+      <div class="stat-card" style="cursor:pointer;" onclick="goToOrdersFiltered('全部', curMonth)">
         <div class="stat-label">本月訂單數</div>
         <div class="stat-val">${thisMonth.length}</div>
         <div class="stat-tag tag-up">筆訂單</div>
       </div>
-      <div class="stat-card">
+      <div class="stat-card" style="cursor:pointer;" onclick="goToOrdersFiltered('待選鍊子', '')">
         <div class="stat-label">待選鍊子</div>
         <div class="stat-val" style="color:#a06010;">${orders.filter(o=>o.status==='待選鍊子').length} 筆</div>
         <div class="stat-tag tag-warn">待確認</div>
@@ -732,7 +742,7 @@ function renderOrders(){
   
   const cards = filtered.map(o=>{
     const items = o.items.map(it=>`${itemName(it)} ×${it.qty}`).join('、');
-    const noGift = o.items.some(it=>!['手鍊','符管','周邊聖物'].includes(itemCategory(it))) && !o.gift;
+    const noGift = !['已寄出','取消','退貨'].includes(o.status) && o.items.some(it=>!['手鍊','符管','周邊聖物'].includes(itemCategory(it))) && !o.gift;
     return `<div class="order-card">
       <div class="order-head" onclick="openOrderDetail('${o.id}')" style="cursor:pointer;">
         <div><div class="order-name">${o.customer}${o.recipientName&&o.recipientName!==o.customer?' → 收：'+o.recipientName:''}</div><div class="order-id">#${o.id} · ${o.date}</div></div>
@@ -2253,7 +2263,7 @@ window.showNotif=function(){
   const orders=getOrders();
   const alerts=[];
   orders.filter(o=>o.status==='待寄出'||o.status==='待選鍊子').forEach(o=>{
-    const noGift=o.items.some(it=>!['手鍊','符管','周邊聖物','充電寶'].includes(itemCategory(it)))&&!o.gift;
+    const noGift=!['已寄出','取消','退貨'].includes(o.status)&&o.items.some(it=>!['手鍊','符管','周邊聖物','充電寶'].includes(itemCategory(it)))&&!o.gift;
     if(noGift) alerts.push(`<div style="padding:10px 0;border-bottom:1px solid rgba(26,10,46,0.06);font-size:13px;">⚠️ ${o.customer} #${o.id}<br><span style="color:var(--text3);font-size:12px;">未填佛牌鍊，請確認</span></div>`);
   });
   openModal(`<div class="modal-title">🔔 待處理提醒</div>${alerts.join('')||'<div style="text-align:center;padding:20px;color:var(--text3);">暫無待處理提醒</div>'}<button class="btn btn-secondary" style="width:100%;margin-top:14px;" onclick="_closeModal()">關閉</button>`);
