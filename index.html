@@ -331,8 +331,8 @@ async function pushProductToCloud(p){
 }
 
 // ---- 訂單 ----
-function rowToOrder(r){ return { id:r.id, date:r.order_date, customer:r.customer, phone:r.phone, shipping:r.shipping, shippingDetail:r.shipping_detail, items:r.items||[], gift:r.gift, staff:r.staff, source:r.source, status:r.status, note:r.note }; }
-function orderToRow(o){ return { id:o.id, tenant_id:TENANT_ID, order_date:o.date, customer:o.customer, phone:o.phone, shipping:o.shipping, shipping_detail:o.shippingDetail, items:o.items, gift:o.gift, staff:o.staff, source:o.source, status:o.status, note:o.note }; }
+function rowToOrder(r){ return { id:r.id, date:r.order_date, customer:r.customer, recipientName:r.recipient_name, phone:r.phone, shipping:r.shipping, shippingDetail:r.shipping_detail, items:r.items||[], gift:r.gift, staff:r.staff, source:r.source, status:r.status, note:r.note, subtotal:r.subtotal||0, shippingFee:r.shipping_fee||0, total:r.total||0 }; }
+function orderToRow(o){ return { id:o.id, tenant_id:TENANT_ID, order_date:o.date, customer:o.customer, recipient_name:o.recipientName||o.customer, phone:o.phone, shipping:o.shipping, shipping_detail:o.shippingDetail, items:o.items, gift:o.gift, staff:o.staff, source:o.source, status:o.status, note:o.note, subtotal:o.subtotal||0, shipping_fee:o.shippingFee||0, total:o.total||0 }; }
 
 async function syncOrdersFromCloud(){
   if(!CLOUD_ENABLED) return false;
@@ -436,6 +436,10 @@ function getStaff(){ return load('staff')||[]; }
 
 function getProductById(id){ return getProducts().find(p=>p.id===id)||null; }
 function getProductName(id){ const p=getProductById(id); return p?p.name:id; }
+function itemName(it){ return it.custom ? it.name : getProductName(it.productId); }
+function itemPrice(it){ if(it.custom) return it.price||0; const p=getProductById(it.productId); return p?p.price:0; }
+function itemLineTotal(it){ return itemPrice(it)*(it.qty||0); }
+function itemCategory(it){ if(it.custom) return '其他'; const p=getProductById(it.productId); return p?p.category:''; }
 
 function genOrderId(){
   const orders=getOrders();
@@ -596,13 +600,12 @@ function renderPage(page){
 function renderHome(){
   const orders = getOrders();
   const todayShip = orders.filter(o=>o.status==='待寄出'||o.status==='待選鍊子');
-  const thisMonth = orders.filter(o=>o.date.startsWith('2025-01'));
-  const totalSales = thisMonth.reduce((sum,o)=>{
-    return sum + o.items.reduce((s,it)=>{ const p=getProductById(it.productId); return s+(p?p.price*it.qty:0); },0);
-  }, 0);
+  const curMonth = new Date().toISOString().slice(0,7); // yyyy-mm
+  const thisMonth = orders.filter(o=>o.date&&o.date.startsWith(curMonth));
+  const totalSales = thisMonth.reduce((sum,o)=> sum + (o.subtotal!=null ? o.subtotal : o.items.reduce((s,it)=>s+itemLineTotal(it),0)), 0);
   
   const rankMap = {};
-  thisMonth.forEach(o=>o.items.forEach(it=>{ const p=getProductById(it.productId); if(p){ rankMap[p.category]=(rankMap[p.category]||0)+p.price*it.qty; } }));
+  thisMonth.forEach(o=>o.items.forEach(it=>{ rankMap[itemName(it)]=(rankMap[itemName(it)]||0)+itemLineTotal(it); }));
   const ranking = Object.entries(rankMap).sort((a,b)=>b[1]-a[1]).slice(0,5);
   
   const rankHTML = ranking.map((r,i)=>`
@@ -613,8 +616,8 @@ function renderHome(){
     </div>`).join('');
   
   const shipCards = todayShip.slice(0,3).map(o=>{
-    const items = o.items.map(it=>`${getProductName(it.productId)} ×${it.qty}`).join('、');
-    const noGift = o.items.some(it=>{ const p=getProductById(it.productId); return p&&p.category!=='手鍊'&&p.category!=='符管'; }) && !o.gift;
+    const items = o.items.map(it=>`${itemName(it)} ×${it.qty}`).join('、');
+    const noGift = o.items.some(it=>!['手鍊','符管'].includes(itemCategory(it))) && !o.gift;
     return `<div class="order-card" onclick="openOrderDetail('${o.id}')">
       <div class="order-head">
         <div><div class="order-name">${o.customer}</div><div class="order-id">#${o.id}</div></div>
@@ -668,22 +671,28 @@ function renderOrders(){
   const orders = getOrders();
   let filtered = orders;
   if(orderFilter!=='全部') filtered = filtered.filter(o=>o.status===orderFilter);
-  if(orderSearch) filtered = filtered.filter(o=>o.customer.includes(orderSearch)||o.id.includes(orderSearch)||o.phone.includes(orderSearch));
+  if(orderSearch) filtered = filtered.filter(o=>o.customer.includes(orderSearch)||o.id.includes(orderSearch)||o.phone.includes(orderSearch)||(o.recipientName||'').includes(orderSearch));
   
   const statusBtns = STATUS_LIST.map(s=>`<span class="chip${orderFilter===s?' on':''}" onclick="setOrderFilter('${s}')" style="white-space:nowrap;">${s}</span>`).join('');
+  const quickStatusOpts = STATUS_LIST.filter(s=>s!=='全部');
   
   const cards = filtered.map(o=>{
-    const items = o.items.map(it=>`${getProductName(it.productId)} ×${it.qty}`).join('、');
-    const noGift = o.items.some(it=>{ const p=getProductById(it.productId); return p&&!['手鍊','符管','周邊聖物'].includes(p.category); }) && !o.gift;
-    return `<div class="order-card" onclick="openOrderDetail('${o.id}')">
-      <div class="order-head">
-        <div><div class="order-name">${o.customer}</div><div class="order-id">#${o.id} · ${o.date}</div></div>
+    const items = o.items.map(it=>`${itemName(it)} ×${it.qty}`).join('、');
+    const noGift = o.items.some(it=>!['手鍊','符管','周邊聖物'].includes(itemCategory(it))) && !o.gift;
+    return `<div class="order-card">
+      <div class="order-head" onclick="openOrderDetail('${o.id}')" style="cursor:pointer;">
+        <div><div class="order-name">${o.customer}${o.recipientName&&o.recipientName!==o.customer?' → 收：'+o.recipientName:''}</div><div class="order-id">#${o.id} · ${o.date}</div></div>
         <span class="badge ${STATUS_BADGE[o.status]||'b-ship'}">${o.status}</span>
       </div>
-      <div class="order-info">${o.shipping==='門市自取'?'門市自取':o.shipping+' · '+o.shippingDetail}<br>接單：${o.staff} · 來源：${o.source}</div>
-      <div class="order-items-text">${items}${o.gift?' ｜ 贈品：'+o.gift:''}</div>
+      <div class="order-info" onclick="openOrderDetail('${o.id}')" style="cursor:pointer;">${o.shipping==='門市自取'?'門市自取':o.shipping+' · '+o.shippingDetail}<br>接單：${o.staff} · 來源：${o.source}</div>
+      <div class="order-items-text" onclick="openOrderDetail('${o.id}')" style="cursor:pointer;">${items}${o.gift?' ｜ 贈品：'+o.gift:''}${o.total?' ｜ 總額：$'+o.total.toLocaleString():''}</div>
       ${noGift?'<div class="alert-pill">⚠ 未填佛牌鍊，請確認</div>':''}
       ${o.note?`<div style="font-size:12px;color:var(--text3);margin-top:6px;">備註：${o.note}</div>`:''}
+      <div style="margin-top:8px;" onclick="event.stopPropagation()">
+        <select class="form-select" style="font-size:12px;padding:8px 10px;" onchange="quickUpdateStatus('${o.id}', this.value)">
+          ${quickStatusOpts.map(s=>`<option${o.status===s?' selected':''}>${s}</option>`).join('')}
+        </select>
+      </div>
     </div>`;
   }).join('');
 
@@ -691,6 +700,7 @@ function renderOrders(){
     <div style="display:flex;gap:8px;align-items:center;">
       <div class="search-bar" style="flex:1;"><span class="search-icon">🔍</span><input type="text" placeholder="搜尋訂單、客戶、電話..." id="order-search" value="${orderSearch}" oninput="setOrderSearch(this.value)"></div>
       <button class="topbar-btn" style="background:rgba(26,10,46,0.08);flex-shrink:0;" onclick="refreshOrdersFromCloud()" title="同步雲端最新資料">🔄</button>
+      <button class="topbar-btn" style="background:rgba(26,10,46,0.08);flex-shrink:0;width:auto;padding:0 10px;font-size:12px;" onclick="exportOrdersExcel()" title="匯出Excel">📊 匯出</button>
     </div>
     <div class="chip-row" style="margin-bottom:14px;">${statusBtns}</div>
     ${cards || '<div class="empty-state"><div class="emoji">📋</div><p>無符合訂單</p></div>'}
@@ -703,15 +713,20 @@ window.setOrderSearch=function(v){ orderSearch=v; renderPage('orders'); }
 window.openOrderDetail=function(id){
   const o = getOrders().find(x=>x.id===id);
   if(!o) return;
-  const items = o.items.map(it=>{ const p=getProductById(it.productId); return `${p?p.name:it.productId} ×${it.qty}${p?' ($'+p.price.toLocaleString()+')':''}`; }).join('<br>');
+  const items = o.items.map(it=>`${itemName(it)} ×${it.qty} ($${itemPrice(it).toLocaleString()})`).join('<br>');
   const statusOpts = ['待寄出','待選鍊子','待自取','已寄出','取消','退貨'].map(s=>`<option${o.status===s?' selected':''}>${s}</option>`).join('');
   openModal(`
     <div class="modal-title">訂單詳情 #${o.id}</div>
-    <div class="detail-row"><span class="detail-key">訂購人</span><span class="detail-val">${o.customer}</span></div>
-    <div class="detail-row"><span class="detail-key">電話</span><span class="detail-val">${o.phone}</span></div>
+    <div class="detail-row"><span class="detail-key">訂購人（暱稱）</span><span class="detail-val">${o.customer}</span></div>
+    <div class="detail-row"><span class="detail-key">收件人</span><span class="detail-val">${o.recipientName||o.customer}</span></div>
+    <div class="detail-row"><span class="detail-key">收件人電話</span><span class="detail-val">${o.phone}</span></div>
     <div class="detail-row"><span class="detail-key">寄送方式</span><span class="detail-val">${o.shipping==='門市自取'?'門市自取':o.shipping+' · '+o.shippingDetail}</span></div>
     <div class="detail-row"><span class="detail-key">訂購商品</span><span class="detail-val">${items}</span></div>
     <div class="detail-row"><span class="detail-key">贈品</span><span class="detail-val">${o.gift||'—'}</span></div>
+    ${o.total?`
+    <div class="detail-row"><span class="detail-key">商品小計</span><span class="detail-val">$${(o.subtotal||0).toLocaleString()}</span></div>
+    <div class="detail-row"><span class="detail-key">運費</span><span class="detail-val">$${(o.shippingFee||0).toLocaleString()}</span></div>
+    <div class="detail-row"><span class="detail-key">應付總額</span><span class="detail-val" style="font-weight:600;">$${o.total.toLocaleString()}</span></div>`:''}
     <div class="detail-row"><span class="detail-key">接單人員</span><span class="detail-val">${o.staff}</span></div>
     <div class="detail-row"><span class="detail-key">客戶來源</span><span class="detail-val">${o.source}</span></div>
     <div class="detail-row"><span class="detail-key">備註</span><span class="detail-val">${o.note||'—'}</span></div>
@@ -720,8 +735,201 @@ window.openOrderDetail=function(id){
       <select class="form-select" id="status-sel">${statusOpts}</select>
     </div>
     <button class="btn btn-primary" onclick="updateOrderStatus('${id}')">更新訂單狀態</button>
+    <button class="btn btn-secondary" style="width:100%;margin-top:8px;" onclick="openEditOrder('${id}')">✏️ 編輯訂單內容</button>
     <button class="btn btn-secondary" style="width:100%;margin-top:8px;" onclick="_closeModal()">關閉</button>
   `);
+}
+
+window.exportOrdersExcel=function(){
+  const orders = getOrders();
+  let filtered = orders;
+  if(orderFilter!=='全部') filtered = filtered.filter(o=>o.status===orderFilter);
+  if(orderSearch) filtered = filtered.filter(o=>o.customer.includes(orderSearch)||o.id.includes(orderSearch)||o.phone.includes(orderSearch)||(o.recipientName||'').includes(orderSearch));
+  if(!filtered.length){ toast('⚠ 沒有可匯出的訂單'); return; }
+
+  const rows = filtered.map(o=>({
+    '訂單編號': o.id,
+    '下單日期': o.date,
+    '訂購人(暱稱)': o.customer,
+    '收件人': o.recipientName||o.customer,
+    '收件人電話': o.phone,
+    '寄送方式': o.shipping==='門市自取'?'門市自取':`${o.shipping} ${o.shippingDetail||''}`,
+    '商品明細': o.items.map(it=>`${itemName(it)}×${it.qty}`).join('、'),
+    '贈品': o.gift||'',
+    '商品小計': o.subtotal||0,
+    '運費': o.shippingFee||0,
+    '應付總額': o.total||(o.subtotal||0)+(o.shippingFee||0),
+    '狀態': o.status,
+    '客戶來源': o.source,
+    '接單人員': o.staff,
+    '備註': o.note||''
+  }));
+
+  const ws = XLSX.utils.json_to_sheet(rows);
+  ws['!cols'] = Object.keys(rows[0]).map(k=>({ wch: Math.max(10, k.length*2) }));
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, '訂單明細');
+  const label = orderFilter!=='全部' ? orderFilter : '全部';
+  XLSX.writeFile(wb, `佛牌殿訂單_${label}_${new Date().toISOString().slice(0,10)}.xlsx`);
+  logActivity('匯出訂單Excel', `${filtered.length} 筆（${label}）`);
+}
+
+window.quickUpdateStatus=async function(id, newStatus){
+  const orders = getOrders();
+  const i = orders.findIndex(o=>o.id===id);
+  if(i>=0){ orders[i].status=newStatus; save('orders',orders); await pushOrderToCloud(orders[i]); await logActivity('更新訂單狀態', `#${id} → ${newStatus}`); }
+  toast('✅ 訂單狀態已更新'+(CLOUD_ENABLED?'（已同步雲端）':''));
+  renderPage('orders');
+  renderPage('home');
+}
+
+// ---- 編輯既有訂單 ----
+let _editOrderItems = [];
+let _editForceFree = false;
+window.openEditOrder=function(id){
+  const o = getOrders().find(x=>x.id===id);
+  if(!o) return;
+  _editOrderItems = o.items.map(it=> it.custom ? {...it, id:'custom_'+Math.random()} : { id:it.productId, name:itemName(it), price:itemPrice(it), qty:it.qty, custom:false, category:itemCategory(it) });
+  _editForceFree = (o.shippingFee||0)===0 && o.shipping && o.shipping!=='門市自取';
+  _closeModal();
+  renderEditOrderModal(id);
+}
+function editOrderSummary(shipping){
+  const subtotal = _editOrderItems.reduce((s,p)=>s+p.price*p.qty,0);
+  let shippingFee=0;
+  if(!_editForceFree && shipping!=='門市自取' && subtotal<5000){
+    if(shipping==='711') shippingFee=60;
+    else if(shipping==='黑貓') shippingFee=130;
+  }
+  return { subtotal, shippingFee, total:subtotal+shippingFee };
+}
+function renderEditOrderModal(id){
+  const o = getOrders().find(x=>x.id===id); if(!o) return;
+  const staff = getStaff();
+  const shipping = document.getElementById('eo-shipping')?.value || o.shipping;
+  const { subtotal, shippingFee, total } = editOrderSummary(shipping);
+  const itemsList = _editOrderItems.map((sp,i)=>`
+    <div style="display:flex;align-items:center;gap:8px;padding:8px;background:var(--surface);border-radius:8px;margin-bottom:6px;">
+      <div style="flex:1;">
+        <div style="font-size:13px;">${sp.name}${sp.custom?' <span style="color:var(--text3);font-size:11px;">（手動輸入）</span>':''}</div>
+        <div style="font-size:12px;color:var(--text3);">$${sp.price.toLocaleString()} × ${sp.qty} = $${(sp.price*sp.qty).toLocaleString()}</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:6px;">
+        <button onclick="editOrderChangeQty(${i},-1,'${id}')" style="width:26px;height:26px;border-radius:50%;border:1px solid rgba(26,10,46,0.2);background:var(--white);">−</button>
+        <span style="font-size:13px;min-width:18px;text-align:center;">${sp.qty}</span>
+        <button onclick="editOrderChangeQty(${i},1,'${id}')" style="width:26px;height:26px;border-radius:50%;border:1px solid rgba(26,10,46,0.2);background:var(--white);">＋</button>
+        <button onclick="editOrderRemoveItem(${i},'${id}')" style="width:26px;height:26px;border-radius:50%;border:none;background:#fce4e4;color:#c0392b;">✕</button>
+      </div>
+    </div>`).join('');
+
+  openModal(`
+    <div class="modal-title">編輯訂單 #${o.id}</div>
+    <div class="form-block"><label class="form-label">訂購人姓名（暱稱）</label><input class="form-input" id="eo-customer" value="${o.customer}"></div>
+    <div class="form-block"><label class="form-label">收件人姓名</label><input class="form-input" id="eo-recipient" value="${o.recipientName||''}"></div>
+    <div class="form-block"><label class="form-label">收件人電話</label><input class="form-input" id="eo-phone" value="${o.phone}"></div>
+    <div class="form-block">
+      <label class="form-label">寄送方式</label>
+      <select class="form-select" id="eo-shipping" onchange="renderEditOrderModal('${id}')">${SHIP_LIST.map(s=>`<option${o.shipping===s?' selected':''}>${s}</option>`).join('')}</select>
+    </div>
+    <div class="form-block" style="${(document.getElementById('eo-shipping')?.value||o.shipping)==='門市自取'?'display:none':''}">
+      <label class="form-label">寄送地址／門市</label>
+      <input class="form-input" id="eo-ship-detail" value="${o.shippingDetail||''}">
+    </div>
+    <div class="form-block">
+      <label class="form-label">訂購商品</label>
+      ${itemsList}
+      <button class="btn btn-secondary btn-sm" style="width:100%;margin-top:6px;" onclick="openEditOrderProductPicker('${id}')">＋ 新增商品</button>
+    </div>
+    <div style="background:var(--white);border-radius:var(--radius);padding:14px;border:1px solid rgba(26,10,46,0.06);margin-bottom:10px;">
+      <div style="display:flex;justify-content:space-between;font-size:13px;padding:4px 0;"><span>商品小計</span><span>$${subtotal.toLocaleString()}</span></div>
+      <div style="display:flex;justify-content:space-between;font-size:13px;padding:4px 0;"><span>運費</span><span>$${shippingFee.toLocaleString()}</span></div>
+      <div style="display:flex;justify-content:space-between;font-size:16px;font-weight:600;padding:8px 0 2px;border-top:1px dashed rgba(26,10,46,0.15);"><span>應付總額</span><span>$${total.toLocaleString()}</span></div>
+      ${shipping!=='門市自取'?`<button class="btn ${_editForceFree?'btn-gold':'btn-secondary'} btn-sm" style="width:100%;margin-top:8px;" onclick="toggleEditForceFree('${id}')">${_editForceFree?'✓ 已強制免運':'強制免運'}</button>`:''}
+    </div>
+    <div class="form-block"><label class="form-label">贈品</label><input class="form-input" id="eo-gift" value="${o.gift||''}"></div>
+    <div class="form-block"><label class="form-label">接單人員</label><select class="form-select" id="eo-staff">${staff.map(s=>`<option${o.staff===s?' selected':''}>${s}</option>`).join('')}</select></div>
+    <div class="form-block"><label class="form-label">備註</label><textarea class="form-textarea" id="eo-note" rows="2">${o.note||''}</textarea></div>
+    <button class="btn btn-gold" onclick="saveEditOrder('${id}')">儲存變更</button>
+    <div style="height:20px;"></div>
+  `);
+}
+window.editOrderChangeQty=function(i,delta,id){ _editOrderItems[i].qty+=delta; if(_editOrderItems[i].qty<=0) _editOrderItems.splice(i,1); renderEditOrderModal(id); }
+window.editOrderRemoveItem=function(i,id){ _editOrderItems.splice(i,1); renderEditOrderModal(id); }
+window.toggleEditForceFree=function(id){ _editForceFree=!_editForceFree; renderEditOrderModal(id); }
+window.openEditOrderProductPicker=function(id){
+  const products=getProducts();
+  openModal(`
+    <div class="modal-title">選擇商品</div>
+    <button class="btn btn-secondary btn-sm" style="width:100%;margin-bottom:10px;" onclick="openEditOrderCustomItem('${id}')">✏️ 其他（手動輸入）</button>
+    <div style="max-height:55vh;overflow-y:auto;">${products.map(p=>`
+      <div class="product-card" onclick="editOrderAddProduct('${p.id}','${id}')">
+        <div class="product-img" style="width:44px;height:44px;font-size:18px;overflow:hidden;">${p.image?`<img src="${p.image}" style="width:100%;height:100%;object-fit:cover;">`:'🏺'}</div>
+        <div><div class="product-name">${p.name}</div><div class="product-meta">${p.code}</div><div style="font-size:13px;font-weight:500;">$${p.price.toLocaleString()}</div></div>
+      </div>`).join('')}</div>
+  `);
+}
+window.editOrderAddProduct=function(pid,id){
+  const p=getProductById(pid); if(!p) return;
+  const exist=_editOrderItems.findIndex(x=>x.id===pid);
+  if(exist>=0) _editOrderItems[exist].qty++;
+  else _editOrderItems.push({...p,qty:1,custom:false});
+  renderEditOrderModal(id);
+}
+window.openEditOrderCustomItem=function(id){
+  openModal(`
+    <div class="modal-title">手動輸入商品</div>
+    <div class="form-block"><label class="form-label">品名 *</label><input class="form-input" id="eci-name"></div>
+    <div class="form-block"><label class="form-label">單價 *</label><input class="form-input" type="number" id="eci-price"></div>
+    <div class="form-block"><label class="form-label">數量</label><input class="form-input" type="number" id="eci-qty" value="1"></div>
+    <button class="btn btn-gold" onclick="editOrderAddCustom('${id}')">加入訂單</button>
+  `);
+}
+window.editOrderAddCustom=function(id){
+  const name=document.getElementById('eci-name')?.value?.trim();
+  const price=parseInt(document.getElementById('eci-price')?.value);
+  const qty=parseInt(document.getElementById('eci-qty')?.value)||1;
+  if(!name||!price){ toast('⚠ 請填寫品名與單價'); return; }
+  _editOrderItems.push({ id:'custom_'+Date.now(), name, price, qty, custom:true, category:'其他' });
+  renderEditOrderModal(id);
+}
+window.saveEditOrder=async function(id){
+  const orders = getOrders();
+  const i = orders.findIndex(o=>o.id===id);
+  if(i<0) return;
+  const oldOrder = orders[i];
+  const customer=document.getElementById('eo-customer')?.value?.trim();
+  const recipientName=document.getElementById('eo-recipient')?.value?.trim();
+  const phone=document.getElementById('eo-phone')?.value?.trim();
+  const shipping=document.getElementById('eo-shipping')?.value;
+  if(!customer||!phone){ toast('⚠ 請填寫訂購人與收件人電話'); return; }
+  if(!_editOrderItems.length){ toast('⚠ 至少需要一項商品'); return; }
+  const { subtotal, shippingFee, total } = editOrderSummary(shipping);
+
+  const newItems = _editOrderItems.map(sp=>sp.custom?{custom:true,name:sp.name,price:sp.price,qty:sp.qty}:{productId:sp.id,qty:sp.qty});
+
+  // 調整庫存差異：舊訂單商品先「還原」，新訂單商品再「扣除」
+  const products = getProducts();
+  const applyDelta=(productId, delta)=>{ const idx=products.findIndex(p=>p.id===productId); if(idx>=0) products[idx].stock=Math.max(0, products[idx].stock-delta); };
+  oldOrder.items.filter(it=>!it.custom).forEach(it=> applyDelta(it.productId, -it.qty)); // 還原
+  newItems.filter(it=>!it.custom).forEach(it=> applyDelta(it.productId, it.qty)); // 重新扣除
+  save('products', products);
+  const touchedIds = new Set([...oldOrder.items.filter(it=>!it.custom).map(it=>it.productId), ...newItems.filter(it=>!it.custom).map(it=>it.productId)]);
+  for(const pid of touchedIds){ const p=getProductById(pid); if(p) await pushProductToCloud(p); }
+
+  const updated = { ...oldOrder, customer, recipientName:recipientName||customer, phone, shipping,
+    shippingDetail:document.getElementById('eo-ship-detail')?.value||'',
+    items:newItems, gift:document.getElementById('eo-gift')?.value||'',
+    staff:document.getElementById('eo-staff')?.value||oldOrder.staff,
+    note:document.getElementById('eo-note')?.value||'',
+    subtotal, shippingFee, total };
+  orders[i]=updated;
+  save('orders',orders);
+  await pushOrderToCloud(updated);
+  await logActivity('編輯訂單', `#${id}`);
+
+  _closeModal();
+  toast('✅ 訂單已更新'+(CLOUD_ENABLED?'（已同步雲端）':''));
+  renderPage('orders');
 }
 
 window.updateOrderStatus=async function(id){
@@ -737,8 +945,39 @@ window.updateOrderStatus=async function(id){
 }
 
 // ============ NEW ORDER ============
-let newOrder = { customer:'', phone:'', shipping:'', shippingDetail:'', items:[], gift:'', staff:'', source:'', note:'' };
+let newOrder = { customer:'', recipientName:'', phone:'', shipping:'', shippingDetail:'', items:[], gift:'', staff:'', source:'', note:'' };
 let selectedProducts = [];
+let forceFreeShipping = false;
+
+function computeOrderSummary(){
+  const subtotal = selectedProducts.reduce((s,p)=>s+p.price*p.qty, 0);
+  const shipping = document.getElementById('no-shipping')?.value || newOrder.shipping;
+  let shippingFee = 0;
+  if(!forceFreeShipping && shipping!=='門市自取' && subtotal<5000){
+    if(shipping==='711') shippingFee=60;
+    else if(shipping==='黑貓') shippingFee=130;
+  }
+  return { subtotal, shippingFee, total: subtotal+shippingFee, shipping };
+}
+
+function renderOrderSummary(){
+  const { subtotal, shippingFee, total, shipping } = computeOrderSummary();
+  const freeApplied = shippingFee===0 && shipping && shipping!=='門市自取';
+  return `
+    <div style="background:var(--white);border-radius:var(--radius);padding:14px;border:1px solid rgba(26,10,46,0.06);margin-bottom:10px;">
+      <div style="display:flex;justify-content:space-between;font-size:13px;padding:4px 0;"><span style="color:var(--text2);">商品小計</span><span>$${subtotal.toLocaleString()}</span></div>
+      <div style="display:flex;justify-content:space-between;font-size:13px;padding:4px 0;">
+        <span style="color:var(--text2);">運費${freeApplied?'（已免運）':''}</span>
+        <span>${shippingFee>0?'$'+shippingFee.toLocaleString():'$0'}</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:16px;font-weight:600;padding:8px 0 2px;border-top:1px dashed rgba(26,10,46,0.15);margin-top:4px;"><span>應付總額</span><span style="color:var(--deep);">$${total.toLocaleString()}</span></div>
+      ${shipping&&shipping!=='門市自取'?`<button class="btn ${forceFreeShipping?'btn-gold':'btn-secondary'} btn-sm" style="width:100%;margin-top:8px;" onclick="toggleForceFree()">${forceFreeShipping?'✓ 已強制免運（點擊取消）':'強制免運'}</button>`:''}
+    </div>`;
+}
+window.toggleForceFree=function(){ forceFreeShipping=!forceFreeShipping; renderPage('new-order'); }
+window.refreshOrderSummary=function(){
+  const el = document.getElementById('order-summary'); if(el) el.innerHTML = renderOrderSummary();
+}
 
 function renderNewOrder(){
   const staff = getStaff();
@@ -749,7 +988,10 @@ function renderNewOrder(){
   
   const itemsList = selectedProducts.map((sp,i)=>`
     <div style="display:flex;align-items:center;gap:8px;padding:8px;background:var(--surface);border-radius:8px;margin-bottom:6px;">
-      <div style="flex:1;font-size:13px;">${sp.name}</div>
+      <div style="flex:1;">
+        <div style="font-size:13px;">${sp.name}${sp.custom?' <span style="color:var(--text3);font-size:11px;">（手動輸入）</span>':''}</div>
+        <div style="font-size:12px;color:var(--text3);">$${sp.price.toLocaleString()} × ${sp.qty} = $${(sp.price*sp.qty).toLocaleString()}</div>
+      </div>
       <div style="display:flex;align-items:center;gap:6px;">
         <button onclick="changeQty(${i},-1)" style="width:28px;height:28px;border-radius:50%;border:1px solid rgba(26,10,46,0.2);background:var(--white);cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center;">−</button>
         <span style="font-size:14px;font-weight:500;min-width:20px;text-align:center;">${sp.qty}</span>
@@ -760,12 +1002,16 @@ function renderNewOrder(){
 
   return `
     <div class="form-block">
-      <label class="form-label">訂購人姓名</label>
+      <label class="form-label">訂購人姓名（暱稱）</label>
       <input class="form-input" id="no-customer" type="text" value="${newOrder.customer}" placeholder="輸入或搜尋客戶..." oninput="searchCustomer(this.value)">
       <div id="customer-suggestions"></div>
     </div>
     <div class="form-block">
-      <label class="form-label">訂購人電話</label>
+      <label class="form-label">收件人姓名</label>
+      <input class="form-input" id="no-recipient" type="text" value="${newOrder.recipientName}" placeholder="若與訂購人相同可留空">
+    </div>
+    <div class="form-block">
+      <label class="form-label">收件人電話</label>
       <input class="form-input" id="no-phone" type="tel" value="${newOrder.phone}" placeholder="09XX-XXX-XXX">
     </div>
     <div class="form-block">
@@ -781,6 +1027,7 @@ function renderNewOrder(){
       ${itemsList}
       <button class="btn btn-secondary btn-sm" style="width:100%;margin-top:6px;" onclick="openProductPicker()">＋ 新增商品</button>
     </div>
+    <div class="form-block" id="order-summary">${renderOrderSummary()}</div>
     <div class="form-block">
       <label class="form-label">贈品（佛牌鍊）</label>
       <select class="form-select" id="no-gift">${giftOpts}</select>
@@ -807,6 +1054,7 @@ window.onShipChange=function(val){
   const lbl=document.getElementById('ship-detail-label');
   if(val==='門市自取'||!val){ block.style.display='none'; }
   else { block.style.display='block'; lbl.textContent=val==='711'?'711門市名稱':'宅配地址'; document.getElementById('no-ship-detail').placeholder=val==='711'?'例：全家信義店':'完整收件地址'; }
+  refreshOrderSummary();
 }
 
 window.searchCustomer=function(v){
@@ -833,18 +1081,65 @@ window.setOrderField=function(field,val,el){
   el.classList.add('on');
 }
 
+let productPickerSearch = '';
 window.openProductPicker=function(){
-  const products=getProducts();
-  const html=`<div class="modal-title">選擇商品</div>` + products.map(p=>`
-    <div class="product-card" onclick="addProduct('${p.id}')">
-      <div class="product-img" style="width:44px;height:44px;font-size:18px;">🏺</div>
-      <div>
-        <div class="product-name">${p.name}</div>
-        <div class="product-meta">${p.code} · 庫存：${p.stock}</div>
-        <div style="font-size:13px;font-weight:500;color:var(--deep);margin-top:3px;">$${p.price.toLocaleString()}</div>
-      </div>
-    </div>`).join('');
+  productPickerSearch = '';
+  renderProductPickerModal();
+}
+function renderProductPickerModal(){
+  const q = productPickerSearch;
+  const products = getProducts().filter(p=> !q || p.name.includes(q) || p.code.includes(q) || p.category.includes(q));
+  const html = `
+    <div class="modal-title">選擇商品</div>
+    <div class="search-bar" style="margin-bottom:10px;"><span class="search-icon">🔍</span><input type="text" id="pp-search" placeholder="搜尋商品名稱、編號、種類..." value="${q}" oninput="setProductPickerSearch(this.value)" autofocus></div>
+    <button class="btn btn-secondary btn-sm" style="width:100%;margin-bottom:10px;" onclick="openCustomItemForm()">✏️ 其他（手動輸入品名與金額）</button>
+    <div id="pp-results" style="max-height:50vh;overflow-y:auto;">${products.map(p=>`
+      <div class="product-card" onclick="addProduct('${p.id}')">
+        <div class="product-img" style="width:44px;height:44px;font-size:18px;overflow:hidden;">${p.image?`<img src="${p.image}" style="width:100%;height:100%;object-fit:cover;">`:'🏺'}</div>
+        <div>
+          <div class="product-name">${p.name}</div>
+          <div class="product-meta">${p.code} · 庫存：${p.stock}</div>
+          <div style="font-size:13px;font-weight:500;color:var(--deep);margin-top:3px;">$${p.price.toLocaleString()}</div>
+        </div>
+      </div>`).join('') || '<div style="text-align:center;color:var(--text3);font-size:13px;padding:20px;">無符合商品</div>'}</div>`;
   openModal(html);
+}
+window.setProductPickerSearch=function(v){
+  productPickerSearch = v;
+  const results = document.getElementById('pp-results');
+  const input = document.getElementById('pp-search');
+  if(results && input){
+    const products = getProducts().filter(p=> !v || p.name.includes(v) || p.code.includes(v) || p.category.includes(v));
+    results.innerHTML = products.map(p=>`
+      <div class="product-card" onclick="addProduct('${p.id}')">
+        <div class="product-img" style="width:44px;height:44px;font-size:18px;overflow:hidden;">${p.image?`<img src="${p.image}" style="width:100%;height:100%;object-fit:cover;">`:'🏺'}</div>
+        <div>
+          <div class="product-name">${p.name}</div>
+          <div class="product-meta">${p.code} · 庫存：${p.stock}</div>
+          <div style="font-size:13px;font-weight:500;color:var(--deep);margin-top:3px;">$${p.price.toLocaleString()}</div>
+        </div>
+      </div>`).join('') || '<div style="text-align:center;color:var(--text3);font-size:13px;padding:20px;">無符合商品</div>';
+  }
+}
+
+window.openCustomItemForm=function(){
+  openModal(`
+    <div class="modal-title">手動輸入商品</div>
+    <div class="form-block"><label class="form-label">品名 *</label><input class="form-input" id="ci-name" placeholder="例：客製化商品"></div>
+    <div class="form-block"><label class="form-label">單價 *</label><input class="form-input" type="number" id="ci-price" placeholder="0"></div>
+    <div class="form-block"><label class="form-label">數量</label><input class="form-input" type="number" id="ci-qty" value="1"></div>
+    <button class="btn btn-gold" onclick="addCustomItem()">加入訂單</button>
+  `);
+}
+window.addCustomItem=function(){
+  const name = document.getElementById('ci-name')?.value?.trim();
+  const price = parseInt(document.getElementById('ci-price')?.value);
+  const qty = parseInt(document.getElementById('ci-qty')?.value)||1;
+  if(!name){ toast('⚠ 請輸入品名'); return; }
+  if(!price||isNaN(price)){ toast('⚠ 請輸入單價'); return; }
+  selectedProducts.push({ id:'custom_'+Date.now(), name, price, qty, custom:true, category:'其他' });
+  _closeModal();
+  renderPage('new-order');
 }
 
 window.addProduct=function(id){
@@ -865,37 +1160,40 @@ window.removeItem=function(i){ selectedProducts.splice(i,1); renderPage('new-ord
 
 window.submitOrder=async function(){
   const customer=document.getElementById('no-customer')?.value?.trim();
+  const recipientName=document.getElementById('no-recipient')?.value?.trim();
   const phone=document.getElementById('no-phone')?.value?.trim();
   const shipping=document.getElementById('no-shipping')?.value;
-  if(!customer){ toast('⚠ 請填入訂購人姓名'); return; }
-  if(!phone){ toast('⚠ 請填入電話'); return; }
+  if(!customer){ toast('⚠ 請填入訂購人姓名（暱稱）'); return; }
+  if(!phone){ toast('⚠ 請填入收件人電話'); return; }
   if(!selectedProducts.length){ toast('⚠ 請至少選擇一項商品'); return; }
   
   const orders=getOrders();
   const newId=genOrderId();
-  const hasBuddha=selectedProducts.some(p=>!['手鍊','符管','周邊聖物','充電寶'].includes(p.category));
+  const hasBuddha=selectedProducts.some(p=>!p.custom && !['手鍊','符管','周邊聖物','充電寶'].includes(p.category));
   const gift=document.getElementById('no-gift')?.value||'';
+  const { subtotal, shippingFee, total } = computeOrderSummary();
   
   const newOrderRecord = {
     id:newId,
     date:new Date().toISOString().slice(0,10),
-    customer,phone,shipping,
+    customer, recipientName: recipientName||customer, phone,shipping,
     shippingDetail:document.getElementById('no-ship-detail')?.value||'',
-    items:selectedProducts.map(p=>({productId:p.id,qty:p.qty})),
+    items:selectedProducts.map(p=>p.custom?{custom:true,name:p.name,price:p.price,qty:p.qty}:{productId:p.id,qty:p.qty}),
     gift,
     staff:document.getElementById('no-staff')?.value||getStaff()[0],
     source:newOrder.source||'門市',
     status:'待寄出',
-    note:document.getElementById('no-note')?.value||''
+    note:document.getElementById('no-note')?.value||'',
+    subtotal, shippingFee, total
   };
   orders.unshift(newOrderRecord);
   save('orders',orders);
   await pushOrderToCloud(newOrderRecord);
   
-  // Update stock
+  // Update stock（手動輸入的品項沒有對應商品，不用扣庫存）
   const products=getProducts();
   const changedProducts=[];
-  selectedProducts.forEach(sp=>{ const i=products.findIndex(p=>p.id===sp.id); if(i>=0){ products[i].stock=Math.max(0,products[i].stock-sp.qty); changedProducts.push(products[i]); } });
+  selectedProducts.filter(sp=>!sp.custom).forEach(sp=>{ const i=products.findIndex(p=>p.id===sp.id); if(i>=0){ products[i].stock=Math.max(0,products[i].stock-sp.qty); changedProducts.push(products[i]); } });
   save('products',products);
   for(const p of changedProducts) await pushProductToCloud(p);
   
@@ -907,10 +1205,11 @@ window.submitOrder=async function(){
   else { savedCustomer=customers[ci]; }
   save('customers',customers);
   await pushCustomerToCloud(savedCustomer);
-  await logActivity('建立訂單', `#${newId} ${customer}`);
+  await logActivity('建立訂單', `#${newId} ${customer}（$${total.toLocaleString()}）`);
   
   selectedProducts=[];
-  newOrder={ customer:'',phone:'',shipping:'',shippingDetail:'',items:[],gift:'',staff:'',source:'',note:'' };
+  forceFreeShipping=false;
+  newOrder={ customer:'',recipientName:'',phone:'',shipping:'',shippingDetail:'',items:[],gift:'',staff:'',source:'',note:'' };
   
   if(hasBuddha&&!gift) toast('⚠ 訂單建立！注意：未填佛牌鍊');
   else toast('✅ 訂單 #'+newId+' 建立成功！');
@@ -1448,7 +1747,7 @@ function renderCustomers(){
   const customers = getCustomers().filter(c=> !customerSearch || c.name.includes(customerSearch)||c.phone.includes(customerSearch));
   const cards = customers.map(c=>{
     const cOrders = orders.filter(o=>o.phone===c.phone);
-    const total = cOrders.reduce((sum,o)=>sum+o.items.reduce((s,it)=>{ const p=getProductById(it.productId); return s+(p?p.price*it.qty:0); },0),0);
+    const total = cOrders.reduce((sum,o)=>sum+(o.subtotal!=null?o.subtotal:o.items.reduce((s,it)=>s+itemLineTotal(it),0)),0);
     const last = cOrders.sort((a,b)=>b.date.localeCompare(a.date))[0];
     const initials = c.name.slice(-2);
     return `<div class="customer-card" onclick="openCustomerDetail('${c.id}')">
@@ -1504,53 +1803,102 @@ window.openCustomerDetail=function(id){
 }
 
 // ============ REPORT ============
+let reportMonth = new Date().toISOString().slice(0,7);
+let reportCompareMonth = '';
+
+function getAvailableMonths(orders){
+  const set = new Set(orders.map(o=>o.date&&o.date.slice(0,7)).filter(Boolean));
+  set.add(new Date().toISOString().slice(0,7));
+  return [...set].sort().reverse();
+}
+function monthLabel(ym){ if(!ym) return ''; const [y,m]=ym.split('-'); return `${y}年${parseInt(m)}月`; }
+function computeMonthStats(orders, ym){
+  const filtered = orders.filter(o=>o.date && o.date.startsWith(ym));
+  let subtotal=0, total=0;
+  filtered.forEach(o=>{
+    const s = o.subtotal!=null ? o.subtotal : o.items.reduce((x,it)=>x+itemLineTotal(it),0);
+    const t = o.total!=null && o.total>0 ? o.total : s + (o.shippingFee||0);
+    subtotal += s; total += t;
+  });
+  return { orders:filtered, subtotal, total, orderCount:filtered.length };
+}
+
 function renderReport(){
   const orders = getOrders();
-  const months = ['10月','11月','12月','1月'];
-  const monthSales = [72000, 89000, 104000, 128400];
-  const maxSale = Math.max(...monthSales);
-  
-  const barsHTML = months.map((m,i)=>`
-    <div class="bar-col">
-      <div class="bar-val-t${i===3?' curr':''}">${monthSales[i]>=1000?Math.round(monthSales[i]/1000)+'k':monthSales[i]}</div>
-      <div class="bar${i===3?' curr':''}" style="height:${Math.round(monthSales[i]/maxSale*80)}px;"></div>
-      <div class="bar-lbl">${m}</div>
-    </div>`).join('');
-  
+  const months = getAvailableMonths(orders);
+  if(!months.includes(reportMonth)) reportMonth = months[0];
+
+  const cur = computeMonthStats(orders, reportMonth);
+  const compare = reportCompareMonth ? computeMonthStats(orders, reportCompareMonth) : null;
+
+  const monthOpts = months.map(m=>`<option value="${m}"${m===reportMonth?' selected':''}>${monthLabel(m)}</option>`).join('');
+  const compareOpts = `<option value="">不比較</option>` + months.filter(m=>m!==reportMonth).map(m=>`<option value="${m}"${m===reportCompareMonth?' selected':''}>${monthLabel(m)}</option>`).join('');
+
+  const diffPct = (a,b)=> b===0 ? (a>0?'+100%':'0%') : (((a-b)/b*100)>=0?'+':'')+Math.round((a-b)/b*100)+'%';
+
+  const compareHTML = compare ? `
+    <div style="background:var(--white);border-radius:var(--radius);padding:14px;margin-bottom:10px;border:1px solid rgba(26,10,46,0.06);">
+      <div class="sec" style="margin:0 0 12px;">月份比較：${monthLabel(reportMonth)} vs ${monthLabel(reportCompareMonth)}</div>
+      <div style="display:flex;justify-content:space-between;font-size:13px;padding:6px 0;border-bottom:1px solid rgba(26,10,46,0.06);">
+        <span style="color:var(--text2);">實際銷售額</span>
+        <span>$${cur.subtotal.toLocaleString()} <span style="color:var(--text3);">vs</span> $${compare.subtotal.toLocaleString()} <b style="color:${cur.subtotal>=compare.subtotal?'#2d7a4a':'#c0392b'};">${diffPct(cur.subtotal,compare.subtotal)}</b></span>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:13px;padding:6px 0;border-bottom:1px solid rgba(26,10,46,0.06);">
+        <span style="color:var(--text2);">含運費銷售額</span>
+        <span>$${cur.total.toLocaleString()} <span style="color:var(--text3);">vs</span> $${compare.total.toLocaleString()} <b style="color:${cur.total>=compare.total?'#2d7a4a':'#c0392b'};">${diffPct(cur.total,compare.total)}</b></span>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:13px;padding:6px 0;">
+        <span style="color:var(--text2);">訂單數</span>
+        <span>${cur.orderCount} <span style="color:var(--text3);">vs</span> ${compare.orderCount} <b style="color:${cur.orderCount>=compare.orderCount?'#2d7a4a':'#c0392b'};">${diffPct(cur.orderCount,compare.orderCount)}</b></span>
+      </div>
+    </div>` : '';
+
   const sourceMap = {};
-  orders.forEach(o=>{ sourceMap[o.source]=(sourceMap[o.source]||0)+1; });
-  const total=orders.length||1;
+  cur.orders.forEach(o=>{ sourceMap[o.source]=(sourceMap[o.source]||0)+1; });
+  const totalOrders=cur.orders.length||1;
   const srcColors=['#d4a843','#3d7ac8','#2d8a5a','#c8553d'];
-  const srcList=SOURCE_LIST.map((s,i)=>({ name:s, pct:Math.round((sourceMap[s]||0)/total*100), color:srcColors[i] }));
-  
+  const srcList=SOURCE_LIST.map((s,i)=>({ name:s, pct:Math.round((sourceMap[s]||0)/totalOrders*100), color:srcColors[i] }));
   const sourceHTML=srcList.map(s=>`
     <div class="source-item">
       <div class="source-dot" style="background:${s.color};"></div>
       <div class="source-name">${s.name}</div>
       <div class="source-pct">${s.pct}%</div>
     </div>`).join('');
-  
+
   const rankMap={};
-  orders.forEach(o=>o.items.forEach(it=>{ const p=getProductById(it.productId); if(p){ rankMap[p.category]=(rankMap[p.category]||0)+p.price*it.qty; } }));
-  const ranking=Object.entries(rankMap).sort((a,b)=>b[1]-a[1]).slice(0,5);
+  cur.orders.forEach(o=>o.items.forEach(it=>{ rankMap[itemName(it)]=(rankMap[itemName(it)]||0)+itemLineTotal(it); }));
+  const ranking=Object.entries(rankMap).sort((a,b)=>b[1]-a[1]).slice(0,10);
   const rankHTML=ranking.map((r,i)=>`<div class="rank-item"><div class="rank-num${i===0?' r1':''}">${i+1}</div><div class="rank-name">${r[0]}</div><div class="rank-sales">$${r[1].toLocaleString()}</div></div>`).join('');
-  
+
   const staffMap={};
-  orders.forEach(o=>{ staffMap[o.staff]=(staffMap[o.staff]||0)+o.items.reduce((s,it)=>{ const p=getProductById(it.productId); return s+(p?p.price*it.qty:0); },0); });
+  cur.orders.forEach(o=>{ staffMap[o.staff]=(staffMap[o.staff]||0)+(o.subtotal!=null?o.subtotal:o.items.reduce((s,it)=>s+itemLineTotal(it),0)); });
   const staffRank=Object.entries(staffMap).sort((a,b)=>b[1]-a[1]);
   const staffHTML=staffRank.map((r,i)=>`<div class="rank-item"><div class="rank-num${i===0?' r1':''}">${i+1}</div><div class="rank-name">${r[0]}</div><div class="rank-sales">$${r[1].toLocaleString()}</div></div>`).join('');
 
   return `
-    <div class="chart-wrap">
-      <div class="sec" style="margin:0 0 14px;">月銷售趨勢</div>
-      <div class="bars">${barsHTML}</div>
+    <div style="display:flex;gap:8px;margin-bottom:12px;">
+      <select class="form-select" id="rp-month" style="flex:1;" onchange="setReportMonth(this.value)">${monthOpts}</select>
+      <select class="form-select" id="rp-compare" style="flex:1;" onchange="setReportCompareMonth(this.value)">${compareOpts}</select>
     </div>
+    <div style="display:flex;gap:10px;margin-bottom:10px;">
+      <div class="stat-card" style="flex:1;">
+        <div class="stat-label">實際銷售額</div>
+        <div class="stat-val" style="font-size:20px;">$${cur.subtotal.toLocaleString()}</div>
+        <div class="stat-tag" style="background:rgba(45,122,74,0.1);color:#2d7a4a;">不含運費</div>
+      </div>
+      <div class="stat-card" style="flex:1;">
+        <div class="stat-label">含運費銷售額</div>
+        <div class="stat-val" style="font-size:20px;">$${cur.total.toLocaleString()}</div>
+        <div class="stat-tag" style="background:rgba(61,122,200,0.1);color:#3d7ac8;">${cur.orderCount} 筆訂單</div>
+      </div>
+    </div>
+    ${compareHTML}
     <div style="background:var(--white);border-radius:var(--radius);padding:14px;margin-bottom:10px;border:1px solid rgba(26,10,46,0.06);">
-      <div class="sec" style="margin:0 0 12px;">客戶來源分析</div>
+      <div class="sec" style="margin:0 0 12px;">客戶來源分析（${monthLabel(reportMonth)}）</div>
       <div class="source-legend">${sourceHTML}</div>
     </div>
     <div style="background:var(--white);border-radius:var(--radius);padding:4px 14px;margin-bottom:10px;border:1px solid rgba(26,10,46,0.06);">
-      <div class="sec" style="margin:12px 0 8px;">商品銷售排行</div>
+      <div class="sec" style="margin:12px 0 8px;">商品銷售排行 Top 10</div>
       ${rankHTML||'<div style="font-size:13px;color:var(--text3);padding:8px 0;">暫無資料</div>'}
     </div>
     <div style="background:var(--white);border-radius:var(--radius);padding:4px 14px;margin-bottom:10px;border:1px solid rgba(26,10,46,0.06);">
@@ -1559,6 +1907,8 @@ function renderReport(){
     </div>
     <div style="height:20px;"></div>`;
 }
+window.setReportMonth=function(v){ reportMonth=v; if(reportCompareMonth===v) reportCompareMonth=''; renderPage('report'); }
+window.setReportCompareMonth=function(v){ reportCompareMonth=v; renderPage('report'); }
 
 // ============ BIND EVENTS ============
 function bindPageEvents(page){
@@ -1570,7 +1920,7 @@ window.showNotif=function(){
   const orders=getOrders();
   const alerts=[];
   orders.filter(o=>o.status==='待寄出'||o.status==='待選鍊子').forEach(o=>{
-    const noGift=o.items.some(it=>{ const p=getProductById(it.productId); return p&&!['手鍊','符管','周邊聖物','充電寶'].includes(p.category); })&&!o.gift;
+    const noGift=o.items.some(it=>!['手鍊','符管','周邊聖物','充電寶'].includes(itemCategory(it)))&&!o.gift;
     if(noGift) alerts.push(`<div style="padding:10px 0;border-bottom:1px solid rgba(26,10,46,0.06);font-size:13px;">⚠️ ${o.customer} #${o.id}<br><span style="color:var(--text3);font-size:12px;">未填佛牌鍊，請確認</span></div>`);
   });
   openModal(`<div class="modal-title">🔔 待處理提醒</div>${alerts.join('')||'<div style="text-align:center;padding:20px;color:var(--text3);">暫無待處理提醒</div>'}<button class="btn btn-secondary" style="width:100%;margin-top:14px;" onclick="_closeModal()">關閉</button>`);
