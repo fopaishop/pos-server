@@ -1611,7 +1611,7 @@ window.openNewProduct=function(){
       <label class="form-label">商品照片</label>
       <div style="display:flex;gap:10px;align-items:center;">
         <label class="photo-upload" for="np-photo-file">📷</label>
-        <input type="file" id="np-photo-file" accept="image/*" capture="environment" style="display:none;" onchange="previewPhoto(this)">
+        <input type="file" id="np-photo-file" accept="image/*" style="display:none;" onchange="previewPhoto(this)">
         <img id="np-photo-preview" style="display:none;" class="photo-preview" onclick="document.getElementById('np-photo-file').click()">
       </div>
     </div>
@@ -1674,7 +1674,7 @@ window.openEditProduct=function(id){
       <label class="form-label">商品照片</label>
       <div style="display:flex;gap:10px;align-items:center;">
         <label class="photo-upload" for="ep-photo-file" style="display:${p.image?'none':'flex'};">📷</label>
-        <input type="file" id="ep-photo-file" accept="image/*" capture="environment" style="display:none;" onchange="previewEditPhoto(this)">
+        <input type="file" id="ep-photo-file" accept="image/*" style="display:none;" onchange="previewEditPhoto(this)">
         <img id="ep-photo-preview" src="${p.image||''}" style="display:${p.image?'block':'none'};" class="photo-preview" onclick="document.getElementById('ep-photo-file').click()">
       </div>
     </div>
