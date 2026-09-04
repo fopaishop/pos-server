@@ -1942,13 +1942,77 @@ window.openCustomerDetail=function(id){
     </div>`).join('');
   openModal(`
     <div class="modal-title">${c.name}</div>
-    <div class="detail-row"><span class="detail-key">電話</span><span class="detail-val">${c.phone}</span></div>
+    <div class="detail-row"><span class="detail-key">電話</span><span class="detail-val">${c.phone||'—'}</span></div>
     <div class="detail-row"><span class="detail-key">寄送方式</span><span class="detail-val">${c.shipping||'—'}</span></div>
     <div class="detail-row"><span class="detail-key">寄送資訊</span><span class="detail-val">${c.shippingDetail||'—'}</span></div>
     <button class="btn btn-secondary btn-sm" style="width:100%;margin-top:10px;" id="copy-cust-btn" onclick="copyCustomerShipping('${id}', this)">📋 一鍵複製收件資料</button>
+    <div style="display:flex;gap:8px;margin-top:8px;">
+      <button class="btn btn-secondary" style="flex:1;margin-top:0;" onclick="openEditCustomer('${id}')">✏️ 編輯</button>
+      <button class="btn" style="flex:1;margin-top:0;background:#fdece8;color:#c0392b;" onclick="confirmDeleteCustomer('${id}')">🗑 刪除</button>
+    </div>
     <div style="margin-top:14px;"><div class="sec" style="margin:0 0 8px;">過往訂單（${orders.length}筆，點擊查看明細）</div>${orderList||'<div style="font-size:13px;color:var(--text3);padding:8px 0;">無訂單記錄</div>'}</div>
     <button class="btn btn-secondary" style="width:100%;margin-top:14px;" onclick="_closeModal()">關閉</button>
   `);
+}
+window.openEditCustomer=function(id){
+  const c=getCustomers().find(x=>x.id===id); if(!c) return;
+  openModal(`
+    <div class="modal-title">編輯客戶資料</div>
+    <div class="form-block"><label class="form-label">姓名 *</label><input class="form-input" id="ec-name" value="${c.name}"></div>
+    <div class="form-block"><label class="form-label">電話</label><input class="form-input" id="ec-phone" value="${c.phone||''}"></div>
+    <div class="form-block">
+      <label class="form-label">寄送方式</label>
+      <select class="form-select" id="ec-shipping" onchange="document.getElementById('ec-detail-block').style.display=this.value==='門市自取'||!this.value?'none':'block'">
+        <option value=""${!c.shipping?' selected':''}>未設定</option>
+        ${SHIP_LIST.map(s=>`<option${c.shipping===s?' selected':''}>${s}</option>`).join('')}
+      </select>
+    </div>
+    <div class="form-block" id="ec-detail-block" style="${!c.shipping||c.shipping==='門市自取'?'display:none':''}">
+      <label class="form-label">寄送資訊（地址／門市）</label>
+      <input class="form-input" id="ec-detail" value="${c.shippingDetail||''}">
+    </div>
+    <button class="btn btn-gold" onclick="saveEditCustomer('${id}')">儲存變更</button>
+  `);
+}
+window.saveEditCustomer=async function(id){
+  const customers=getCustomers();
+  const i=customers.findIndex(c=>c.id===id);
+  if(i<0) return;
+  const name=document.getElementById('ec-name')?.value?.trim();
+  if(!name){ toast('⚠ 請填寫姓名'); return; }
+  const updated={ ...customers[i], name,
+    phone:document.getElementById('ec-phone')?.value?.trim()||'',
+    shipping:document.getElementById('ec-shipping')?.value||'',
+    shippingDetail:document.getElementById('ec-detail')?.value||'' };
+  customers[i]=updated;
+  save('customers',customers);
+  await pushCustomerToCloud(updated);
+  await logActivity('編輯客戶資料', name);
+  _closeModal();
+  toast('✅ 客戶資料已更新'+(CLOUD_ENABLED?'（已同步雲端）':''));
+  renderPage('customers');
+}
+window.confirmDeleteCustomer=function(id){
+  const c=getCustomers().find(x=>x.id===id); if(!c) return;
+  openModal(`
+    <div class="modal-title">刪除客戶資料</div>
+    <div style="font-size:14px;margin-bottom:6px;">確定要刪除「${c.name}」這筆收件資料嗎？</div>
+    <div style="font-size:12px;color:#c0392b;margin-bottom:18px;">⚠ 這只會刪除客戶資料本身，過往訂單紀錄不會被刪除。</div>
+    <button class="btn" style="width:100%;background:#c0392b;color:#fff;" onclick="deleteCustomer('${id}')">確定刪除</button>
+    <button class="btn btn-secondary" style="width:100%;margin-top:8px;" onclick="_closeModal()">取消</button>
+  `);
+}
+window.deleteCustomer=async function(id){
+  const customers=getCustomers().filter(c=>c.id!==id);
+  save('customers',customers);
+  if(CLOUD_ENABLED){
+    try{ const { error } = await sb.from('customers').delete().eq('id', id); if(error) throw error; }
+    catch(e){ console.error('雲端刪除客戶失敗', e); toast('⚠ 雲端刪除失敗，請檢查網路'); }
+  }
+  await logActivity('刪除客戶資料', id);
+  _closeModal();
+  toast('✅ 客戶資料已刪除');
+  renderPage('customers');
 }
 window.copyCustomerShipping=async function(id, btn){
   const c=getCustomers().find(x=>x.id===id); if(!c) return;
