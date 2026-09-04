@@ -166,9 +166,10 @@ html, body { height: 100%; overflow: hidden; font-family: 'Noto Sans TC', sans-s
 /* MODAL OVERLAY */
 .modal-overlay { position: absolute; inset: 0; background: rgba(10,4,20,0.6); z-index: 100; display: flex; flex-direction: column; justify-content: flex-end; opacity: 0; pointer-events: none; transition: opacity 0.25s; }
 .modal-overlay.open { opacity: 1; pointer-events: all; }
-.modal-sheet { background: var(--white); border-radius: 20px 20px 0 0; padding: 20px; max-height: 88vh; overflow-y: auto; transform: translateY(20px); transition: transform 0.25s; }
+.modal-sheet { background: var(--white); border-radius: 20px 20px 0 0; padding: 20px; max-height: 88vh; overflow-y: auto; transform: translateY(20px); transition: transform 0.25s; position: relative; }
 .modal-overlay.open .modal-sheet { transform: translateY(0); }
-.modal-handle { width: 36px; height: 4px; border-radius: 2px; background: var(--surface2); margin: 0 auto 16px; }
+.modal-handle { width: 36px; height: 4px; border-radius: 2px; background: var(--surface2); margin: 0 auto 16px; cursor: grab; }
+.modal-close-x { position: absolute; top: 14px; right: 16px; width: 32px; height: 32px; border-radius: 50%; border: none; background: var(--surface); color: var(--text2); font-size: 16px; display: flex; align-items: center; justify-content: center; cursor: pointer; z-index: 5; }
 .modal-title { font-family: 'Noto Serif TC', serif; font-size: 17px; font-weight: 600; color: var(--text); margin-bottom: 16px; }
 
 /* TOAST */
@@ -260,6 +261,7 @@ html, body { height: 100%; overflow: hidden; font-family: 'Noto Sans TC', sans-s
   <!-- MODAL -->
   <div class="modal-overlay" id="modal" onclick="closeModal(event)">
     <div class="modal-sheet" id="modal-sheet">
+      <button class="modal-close-x" onclick="_closeModal()">✕</button>
       <div class="modal-handle"></div>
       <div id="modal-content"></div>
     </div>
@@ -601,6 +603,32 @@ document.getElementById('tabbar').addEventListener('click', e=>{
   bar.addEventListener('click', e=>{ if(moved){ e.stopPropagation(); e.preventDefault(); } }, true);
 })();
 
+// 彈窗支援「由上往下滑動」關閉（手機常見手勢）
+(function enableModalSwipeToClose(){
+  const sheet = document.getElementById('modal-sheet');
+  let startY=0, curY=0, dragging=false;
+  sheet.addEventListener('touchstart', e=>{
+    // 只有從彈窗上半部（含把手區）開始拖曳才視為關閉手勢，避免跟內容捲動衝突
+    if(sheet.scrollTop>0) return;
+    startY = e.touches[0].clientY; curY=startY; dragging=true;
+    sheet.style.transition='none';
+  }, { passive:true });
+  sheet.addEventListener('touchmove', e=>{
+    if(!dragging) return;
+    curY = e.touches[0].clientY;
+    const dy = curY-startY;
+    if(dy>0) sheet.style.transform = `translateY(${dy}px)`;
+  }, { passive:true });
+  sheet.addEventListener('touchend', ()=>{
+    if(!dragging) return;
+    dragging=false;
+    sheet.style.transition='';
+    const dy = curY-startY;
+    if(dy>80){ sheet.style.transform=''; _closeModal(); }
+    else { sheet.style.transform=''; }
+  });
+})();
+
 function navigateTo(page){
   if(!canAccess(page)){ toast('⚠ 你的身份沒有這個頁面的權限'); return; }
   document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active', t.dataset.page===page));
@@ -690,14 +718,17 @@ function renderHome(){
 // ============ ORDERS ============
 let orderFilter = '全部';
 let orderSearch = '';
+let orderMonthFilter = new Date().toISOString().slice(0,7); // 預設只顯示當月訂單，空字串代表「全部月份」
 function renderOrders(){
   const orders = getOrders();
   let filtered = orders;
+  if(orderMonthFilter) filtered = filtered.filter(o=>o.date && o.date.startsWith(orderMonthFilter));
   if(orderFilter!=='全部') filtered = filtered.filter(o=>o.status===orderFilter);
   if(orderSearch) filtered = filtered.filter(o=>o.customer.includes(orderSearch)||o.id.includes(orderSearch)||o.phone.includes(orderSearch)||(o.recipientName||'').includes(orderSearch));
   
   const statusBtns = STATUS_LIST.map(s=>`<span class="chip${orderFilter===s?' on':''}" onclick="setOrderFilter('${s}')" style="white-space:nowrap;">${s}</span>`).join('');
   const quickStatusOpts = STATUS_LIST.filter(s=>s!=='全部');
+  const monthOpts = `<option value=""${orderMonthFilter===''?' selected':''}>全部月份</option>` + getAvailableMonths(orders).map(m=>`<option value="${m}"${orderMonthFilter===m?' selected':''}>${monthLabel(m)}</option>`).join('');
   
   const cards = filtered.map(o=>{
     const items = o.items.map(it=>`${itemName(it)} ×${it.qty}`).join('、');
@@ -725,10 +756,12 @@ function renderOrders(){
       <button class="topbar-btn" style="background:rgba(26,10,46,0.08);flex-shrink:0;" onclick="refreshOrdersFromCloud()" title="同步雲端最新資料">🔄</button>
       <button class="topbar-btn" style="background:rgba(26,10,46,0.08);flex-shrink:0;width:auto;padding:0 10px;font-size:12px;" onclick="exportOrdersExcel()" title="匯出Excel">📊 匯出</button>
     </div>
+    <select class="form-select" style="margin-bottom:10px;" onchange="setOrderMonthFilter(this.value)">${monthOpts}</select>
     <div class="chip-row" style="margin-bottom:14px;">${statusBtns}</div>
     ${cards || '<div class="empty-state"><div class="emoji">📋</div><p>無符合訂單</p></div>'}
     <div style="height:80px;"></div>`;
 }
+window.setOrderMonthFilter=function(v){ orderMonthFilter=v; renderPage('orders'); }
 
 window.setOrderFilter=function(s){ orderFilter=s; renderPage('orders'); }
 window.setOrderSearch=function(v){ orderSearch=v; renderPage('orders'); }
@@ -766,6 +799,7 @@ window.openOrderDetail=function(id){
 window.exportOrdersExcel=function(){
   const orders = getOrders();
   let filtered = orders;
+  if(orderMonthFilter) filtered = filtered.filter(o=>o.date && o.date.startsWith(orderMonthFilter));
   if(orderFilter!=='全部') filtered = filtered.filter(o=>o.status===orderFilter);
   if(orderSearch) filtered = filtered.filter(o=>o.customer.includes(orderSearch)||o.id.includes(orderSearch)||o.phone.includes(orderSearch)||(o.recipientName||'').includes(orderSearch));
   if(!filtered.length){ toast('⚠ 沒有可匯出的訂單'); return; }
@@ -1345,7 +1379,8 @@ function renderFilter(){
     <button class="btn btn-gold" onclick="runFilter()">搜尋符合商品</button>
     <button class="btn btn-secondary" style="width:100%;margin-top:8px;" onclick="clearFilter()">清除條件</button>
     <div id="filter-results" style="margin-top:16px;">${resultHTML}</div>
-    <div style="height:40px;"></div>`;
+    <div style="height:80px;"></div>
+    <button class="fab" onclick="openNewProduct()">＋</button>`;
 }
 
 window.setFilterQ=function(v){ filterState.q=v; renderPage('filter'); }
@@ -1418,13 +1453,11 @@ window.addManageListItem=function(type){
 function buildIntroText(p){
   const lines = [
     `【${p.name}】`,
-    `編號：${p.code}`,
     p.master ? `師傅/寺廟：${p.master}` : '',
     p.effects && p.effects.length ? `功效：${p.effects.join('、')}` : '',
     p.material ? `材料：${p.material}` : '',
     p.feature ? `特色：${p.feature}` : '',
     `價格：$${(p.price||0).toLocaleString()}`,
-    `目前庫存：${p.stock>0 ? p.stock+' 件' : '缺貨中'}`,
   ];
   return lines.filter(Boolean).join('\n');
 }
