@@ -170,8 +170,12 @@ async function handleRequest(req, res) {
           const { data: publicUrlData } = supabaseAdmin.storage.from('product-images').getPublicUrl(path);
           const newUrl = publicUrlData.publicUrl;
 
+          const { data: currentProduct } = await supabaseAdmin.from('products').select('images').eq('id', p.id).single();
+          const newImages = (currentProduct?.images || []).map(img => img === p.image ? newUrl : img);
+          if (!newImages.length) newImages.push(newUrl);
+
           const { error: updateErr } = await supabaseAdmin
-            .from('products').update({ image: newUrl }).eq('id', p.id).eq('tenant_id', tenantId);
+            .from('products').update({ image: newUrl, images: newImages }).eq('id', p.id).eq('tenant_id', tenantId);
           if (updateErr) throw updateErr;
 
           results.push({ id: p.id, code: p.code, ok: true });
