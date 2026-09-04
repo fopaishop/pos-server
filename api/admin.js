@@ -136,6 +136,54 @@ async function handleRequest(req, res) {
       return res.status(200).json({ ok: true });
     }
 
+    if (action === 'migrate_images_batch') {
+      const batchSize = Math.min(payload?.batchSize || 5, 10); // 每次處理不要太多，避免超過伺服器執行時間限制
+      const { data: products, error: fetchErr } = await supabaseAdmin
+        .from('products')
+        .select('id, code, image')
+        .eq('tenant_id', tenantId)
+        .ilike('image', '%drive.google.com%')
+        .limit(batchSize);
+      if (fetchErr) throw fetchErr;
+
+      const { count: remainingCount } = await supabaseAdmin
+        .from('products')
+        .select('id', { count: 'exact', head: true })
+        .eq('tenant_id', tenantId)
+        .ilike('image', '%drive.google.com%');
+
+      const results = [];
+      for (const p of products || []) {
+        try {
+          const imgRes = await fetch(p.image);
+          if (!imgRes.ok) throw new Error(`下載圖片失敗（${imgRes.status}）`);
+          const arrayBuffer = await imgRes.arrayBuffer();
+          const contentType = imgRes.headers.get('content-type') || 'image/jpeg';
+          const ext = contentType.includes('png') ? 'png' : 'jpg';
+          const path = `${tenantId}/${p.id}.${ext}`;
+
+          const { error: uploadErr } = await supabaseAdmin.storage
+            .from('product-images')
+            .upload(path, Buffer.from(arrayBuffer), { contentType, upsert: true });
+          if (uploadErr) throw uploadErr;
+
+          const { data: publicUrlData } = supabaseAdmin.storage.from('product-images').getPublicUrl(path);
+          const newUrl = publicUrlData.publicUrl;
+
+          const { error: updateErr } = await supabaseAdmin
+            .from('products').update({ image: newUrl }).eq('id', p.id).eq('tenant_id', tenantId);
+          if (updateErr) throw updateErr;
+
+          results.push({ id: p.id, code: p.code, ok: true });
+        } catch (e) {
+          results.push({ id: p.id, code: p.code, ok: false, error: e.message });
+        }
+      }
+
+      const remaining = Math.max(0, (remainingCount || 0) - results.filter(r=>r.ok).length);
+      return res.status(200).json({ ok: true, processed: results.length, results, remaining });
+    }
+
     return res.status(400).json({ error: '不支援的操作：' + action });
   } catch (e) {
     console.error(e);
