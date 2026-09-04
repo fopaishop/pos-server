@@ -1183,12 +1183,30 @@ window.removeItem=function(i){ selectedProducts.splice(i,1); renderPage('new-ord
 
 window.submitOrder=async function(){
   const customer=document.getElementById('no-customer')?.value?.trim();
-  const recipientName=document.getElementById('no-recipient')?.value?.trim();
   const phone=document.getElementById('no-phone')?.value?.trim();
   const shipping=document.getElementById('no-shipping')?.value;
   if(!customer){ toast('⚠ 請填入訂購人姓名（暱稱）'); return; }
   if(!phone){ toast('⚠ 請填入收件人電話'); return; }
-  if(!selectedProducts.length){ toast('⚠ 請至少選擇一項商品'); return; }
+
+  if(!selectedProducts.length && shipping && shipping!=='門市自取'){
+    openModal(`
+      <div class="modal-title">確認運費</div>
+      <div style="font-size:13px;margin-bottom:16px;line-height:1.6;">這筆訂單沒有加入任何商品（例如抽獎中獎寄送），是否需要向客戶收取運費？</div>
+      <button class="btn btn-gold" onclick="_closeModal();finalizeSubmitOrder(false)">需要收運費（依一般規則計算）</button>
+      <button class="btn btn-secondary" style="width:100%;margin-top:8px;" onclick="_closeModal();finalizeSubmitOrder(true)">本次贈送，不收運費</button>
+      <button class="btn btn-secondary" style="width:100%;margin-top:8px;background:none;" onclick="_closeModal()">取消</button>
+    `);
+    return;
+  }
+  await finalizeSubmitOrder(forceFreeShipping);
+}
+
+window.finalizeSubmitOrder=async function(forceFreeOverride){
+  if(forceFreeOverride!==undefined) forceFreeShipping = forceFreeOverride;
+  const customer=document.getElementById('no-customer')?.value?.trim();
+  const recipientName=document.getElementById('no-recipient')?.value?.trim();
+  const phone=document.getElementById('no-phone')?.value?.trim();
+  const shipping=document.getElementById('no-shipping')?.value;
   
   const orders=getOrders();
   const newId=genOrderId();
@@ -1220,12 +1238,14 @@ window.submitOrder=async function(){
   save('products',products);
   for(const p of changedProducts) await pushProductToCloud(p);
   
-  // Save/update customer
+  // Save/update customer：同一個人如果換了新的收件方式（地址/門市），視為新增一筆客戶收件資料，
+  // 這樣之後在「訂購人姓名」搜尋時，同一人的不同收件地址都能個別被選到、複製，不會互相覆蓋掉。
   const customers=getCustomers();
-  const ci=customers.findIndex(c=>c.phone===phone);
+  const shipDetail=document.getElementById('no-ship-detail')?.value||'';
+  const exact=customers.find(c=>c.phone===phone && c.name===customer && c.shipping===shipping && (c.shippingDetail||'')===shipDetail);
   let savedCustomer;
-  if(ci<0){ savedCustomer={id:'C'+Date.now(),name:customer,phone,shipping,shippingDetail:document.getElementById('no-ship-detail')?.value||''}; customers.push(savedCustomer); }
-  else { savedCustomer=customers[ci]; }
+  if(exact){ savedCustomer=exact; }
+  else{ savedCustomer={id:'C'+Date.now(),name:customer,phone,shipping,shippingDetail:shipDetail}; customers.push(savedCustomer); }
   save('customers',customers);
   await pushCustomerToCloud(savedCustomer);
   await logActivity('建立訂單', `#${newId} ${customer}（$${total.toLocaleString()}）`);
@@ -1240,7 +1260,7 @@ window.submitOrder=async function(){
 }
 
 // ============ FILTER ============
-let filterState = { q:'', cats:[], effects:[], masters:[], type:'不限', budgetMin:'', budgetMax:'' };
+let filterState = { q:'', cats:[], effects:[], masters:[], type:'不限', budgetMin:'', budgetMax:'', showOutOfStock:false };
 function renderFilter(){
   const cats = load('cats')||CATS;
   const effs = load('effects')||EFFECTS;
@@ -1253,6 +1273,7 @@ function renderFilter(){
   const hasFilter = filterState.q||filterState.cats.length||filterState.effects.length||filterState.masters.length||filterState.type!=='不限'||filterState.budgetMin||filterState.budgetMax;
   if(hasFilter){
     results = getProducts().filter(p=>{
+      if(!filterState.showOutOfStock && p.stock<=0) return false;
       if(filterState.q && !(p.name.includes(filterState.q)||p.code.includes(filterState.q)||p.category.includes(filterState.q)||(p.master||'').includes(filterState.q))) return false;
       if(filterState.cats.length && !filterState.cats.includes(p.category)) return false;
       if(filterState.effects.length && !filterState.effects.some(e=>p.effects.includes(e))) return false;
@@ -1265,10 +1286,10 @@ function renderFilter(){
   }
   
   const resultHTML = hasFilter ? (results.length ? results.map((p,i)=>`
-    <div class="product-card" style="align-items:flex-start;">
+    <div class="product-card" style="align-items:flex-start;${p.stock<=0?'opacity:0.6;':''}">
       <div class="product-img" style="font-size:22px;overflow:hidden;" onclick="openProductDetail('${p.id}')">${p.image?`<img src="${p.image}" style="width:100%;height:100%;object-fit:cover;">`:'🏺'}</div>
       <div style="flex:1;">
-        <div class="product-name" onclick="openProductDetail('${p.id}')">${p.name}</div>
+        <div class="product-name" onclick="openProductDetail('${p.id}')">${p.name}${p.stock<=0?' <span style="color:#c0392b;font-size:11px;">（無庫存）</span>':''}</div>
         <div class="product-meta">${p.master||''} · ${p.year||''}年 · 庫存：${p.stock}</div>
         <div class="product-tags">${p.effects.slice(0,3).map(e=>`<span class="ptag ptag-effect">${e}</span>`).join('')}${p.type==='陰牌'?'<span class="ptag ptag-neg">陰牌</span>':'<span class="ptag ptag-pos">正牌</span>'}</div>
         <div class="price-tag">$${p.price.toLocaleString()}</div>
@@ -1280,7 +1301,11 @@ function renderFilter(){
     </div>`).join('') : `<div class="empty-state"><div class="emoji">🔍</div><p>無符合商品</p></div>`) : '';
 
   return `
-    <div class="search-bar" style="margin-bottom:12px;"><span class="search-icon">🔍</span><input type="text" placeholder="輸入商品名稱、編號或種類快速查詢..." id="f-q" value="${filterState.q}" oninput="setFilterQ(this.value)"></div>
+    <div class="search-bar" style="margin-bottom:8px;"><span class="search-icon">🔍</span><input type="text" placeholder="輸入商品名稱、編號或種類快速查詢..." id="f-q" value="${filterState.q}" oninput="setFilterQ(this.value)"></div>
+    <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text2);margin-bottom:12px;padding:0 2px;cursor:pointer;">
+      <input type="checkbox" ${filterState.showOutOfStock?'checked':''} onchange="toggleShowOutOfStock()" style="width:16px;height:16px;">
+      顯示無庫存商品（方便查詢已售完商品的資料，做售後服務說明用）
+    </label>
     <div style="background:var(--white);border-radius:var(--radius);padding:14px;margin-bottom:12px;border:1px solid rgba(26,10,46,0.06);">
       <div class="sec" style="margin:0 0 10px;">預算範圍 (TWD)</div>
       <div class="form-row">
@@ -1336,7 +1361,8 @@ window.runFilter=function(){
   filterState.budgetMax=document.getElementById('f-max')?.value||'';
   renderPage('filter');
 }
-window.clearFilter=function(){ filterState={q:'',cats:[],effects:[],masters:[],type:'不限',budgetMin:'',budgetMax:''}; renderPage('filter'); }
+window.clearFilter=function(){ filterState={q:'',cats:[],effects:[],masters:[],type:'不限',budgetMin:'',budgetMax:'',showOutOfStock:false}; renderPage('filter'); }
+window.toggleShowOutOfStock=function(){ filterState.showOutOfStock=!filterState.showOutOfStock; renderPage('filter'); }
 window.showAllCats=function(){
   const cats = load('cats')||CATS;
   const html=`<div class="modal-title">選擇種類</div><div class="chip-row" style="max-height:60vh;overflow-y:auto;">` + cats.map(c=>`<span class="chip${filterState.cats.includes(c)?' on':''}" onclick="toggleFilterCat('${c}',this)">${c}</span>`).join('') + `</div><button class="btn btn-primary" onclick="_closeModal();renderPage('filter')">確認</button>`;
@@ -1873,28 +1899,54 @@ window.setCustSearch=function(v){ customerSearch=v; renderPage('customers'); }
 window.openCustomerDetail=function(id){
   const c=getCustomers().find(x=>x.id===id); if(!c)return;
   const orders=getOrders().filter(o=>o.phone===c.phone).sort((a,b)=>b.date.localeCompare(a.date));
-  const orderList=orders.slice(0,5).map(o=>`
-    <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid rgba(26,10,46,0.06);">
-      <div><div style="font-size:13px;">#${o.id}</div><div style="font-size:11px;color:var(--text3);">${o.date}</div></div>
-      <span class="badge ${STATUS_BADGE[o.status]||'b-ship'}">${o.status}</span>
+  const orderList=orders.slice(0,8).map(o=>`
+    <div style="padding:8px 0;border-bottom:1px solid rgba(26,10,46,0.06);cursor:pointer;" onclick="_closeModal();openOrderDetail('${o.id}')">
+      <div style="display:flex;justify-content:space-between;">
+        <div><div style="font-size:13px;">#${o.id}</div><div style="font-size:11px;color:var(--text3);">${o.date}</div></div>
+        <span class="badge ${STATUS_BADGE[o.status]||'b-ship'}">${o.status}</span>
+      </div>
+      <div style="font-size:12px;color:var(--text2);margin-top:4px;">${o.items.map(it=>`${itemName(it)}×${it.qty}`).join('、')}${o.total?' ｜ $'+o.total.toLocaleString():''}</div>
     </div>`).join('');
   openModal(`
     <div class="modal-title">${c.name}</div>
     <div class="detail-row"><span class="detail-key">電話</span><span class="detail-val">${c.phone}</span></div>
-    <div class="detail-row"><span class="detail-key">常用寄送</span><span class="detail-val">${c.shipping||'—'}</span></div>
+    <div class="detail-row"><span class="detail-key">寄送方式</span><span class="detail-val">${c.shipping||'—'}</span></div>
     <div class="detail-row"><span class="detail-key">寄送資訊</span><span class="detail-val">${c.shippingDetail||'—'}</span></div>
-    <div style="margin-top:14px;"><div class="sec" style="margin:0 0 8px;">過往訂單（${orders.length}筆）</div>${orderList||'<div style="font-size:13px;color:var(--text3);padding:8px 0;">無訂單記錄</div>'}</div>
+    <button class="btn btn-secondary btn-sm" style="width:100%;margin-top:10px;" id="copy-cust-btn" onclick="copyCustomerShipping('${id}', this)">📋 一鍵複製收件資料</button>
+    <div style="margin-top:14px;"><div class="sec" style="margin:0 0 8px;">過往訂單（${orders.length}筆，點擊查看明細）</div>${orderList||'<div style="font-size:13px;color:var(--text3);padding:8px 0;">無訂單記錄</div>'}</div>
     <button class="btn btn-secondary" style="width:100%;margin-top:14px;" onclick="_closeModal()">關閉</button>
   `);
+}
+window.copyCustomerShipping=async function(id, btn){
+  const c=getCustomers().find(x=>x.id===id); if(!c) return;
+  const lines = [
+    `收件人：${c.name}`,
+    `電話：${c.phone}`,
+    `寄送方式：${c.shipping||'—'}`,
+    c.shipping && c.shipping!=='門市自取' ? `${c.shipping==='711'?'門市':'地址'}：${c.shippingDetail||'—'}` : ''
+  ].filter(Boolean);
+  try{
+    await navigator.clipboard.writeText(lines.join('\n'));
+    const original=btn.textContent; btn.textContent='✅ 已複製'; setTimeout(()=>{ btn.textContent=original; }, 1600);
+  }catch(e){ alert('複製失敗，請手動選取：\n\n'+lines.join('\n')); }
 }
 
 // ============ REPORT ============
 let reportMonth = new Date().toISOString().slice(0,7);
 let reportCompareMonth = '';
 
+const REPORT_FIRST_MONTH = '2026-02'; // 報表最早可選的月份，之後有更早的資料可以再往前調整
 function getAvailableMonths(orders){
   const set = new Set(orders.map(o=>o.date&&o.date.slice(0,7)).filter(Boolean));
-  set.add(new Date().toISOString().slice(0,7));
+  // 從最早月份連續產生到「現在」這個月，這樣即使該月還沒有任何訂單，也能先選來看/比較，
+  // 而且因為是即時用今天的日期算出來的，每次開頁面都會自動包含到最新月份，不用手動新增。
+  const [fy,fm] = REPORT_FIRST_MONTH.split('-').map(Number);
+  const now = new Date();
+  let y=fy, m=fm;
+  while(y<now.getFullYear() || (y===now.getFullYear() && m<=now.getMonth()+1)){
+    set.add(`${y}-${String(m).padStart(2,'0')}`);
+    m++; if(m>12){ m=1; y++; }
+  }
   return [...set].sort().reverse();
 }
 function monthLabel(ym){ if(!ym) return ''; const [y,m]=ym.split('-'); return `${y}年${parseInt(m)}月`; }
@@ -2067,7 +2119,12 @@ async function callAdminApi(action, payload){
     headers:{ 'Content-Type':'application/json' },
     body: JSON.stringify({ action, payload, accessToken: session?.access_token })
   });
-  const json = await res.json();
+  const text = await res.text();
+  let json;
+  try{ json = JSON.parse(text); }
+  catch(e){
+    throw new Error(`伺服器沒有回傳正確格式（可能是 api/admin.js 未部署成功，或 Vercel 環境變數未設定）。原始訊息：${text.slice(0,120)}`);
+  }
   if(!res.ok) throw new Error(json.error||'操作失敗');
   return json;
 }
