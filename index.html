@@ -515,24 +515,32 @@ function hideRolePicker(){
   setTimeout(()=>{ el.style.display='none'; }, 250);
 }
 
-function renderLoginForm(errorMsg){
+function renderLoginForm(errorMsg, prefillEmail){
+  // 記住帳號：優先用這次傳進來的值（例如登入失敗時保留剛打的），沒有的話用上次成功登入存的 email
+  const savedEmail = prefillEmail!=null ? prefillEmail : (localStorage.getItem('bpd_last_email')||'');
   document.getElementById('role-picker-content').innerHTML = `
     <div class="modal-title" style="text-align:center;">佛牌殿管理系統登入</div>
     ${errorMsg?`<div style="background:rgba(192,57,43,0.1);color:#c0392b;font-size:12px;padding:8px 10px;border-radius:8px;margin-bottom:10px;text-align:center;">${errorMsg}</div>`:''}
-    <input class="form-input" type="email" id="login-email" placeholder="Email" style="margin-bottom:10px;" autocomplete="username">
-    <input class="form-input" type="password" id="login-pw" placeholder="密碼" style="margin-bottom:14px;" autocomplete="current-password">
-    <button class="btn btn-gold" onclick="doLogin()" id="login-btn">登入</button>
-    <div style="font-size:11px;color:var(--text3);text-align:center;margin-top:14px;">帳號由管理員建立，如尚未有帳號請聯繫店長</div>
+    <form id="login-form" autocomplete="on">
+      <input class="form-input" type="email" id="login-email" name="username" placeholder="Email" style="margin-bottom:10px;" autocomplete="username" value="${(savedEmail||'').replace(/"/g,'&quot;')}">
+      <input class="form-input" type="password" id="login-pw" name="password" placeholder="密碼" style="margin-bottom:14px;" autocomplete="current-password">
+      <button type="submit" class="btn btn-gold" id="login-btn">登入</button>
+    </form>
+    <div style="font-size:11px;color:var(--text3);text-align:center;margin-top:14px;">帳號由管理員建立，如尚未有帳號請聯繫店長<br>首次登入成功後，瀏覽器通常會跳出「儲存密碼」提示，按下儲存下次就會自動帶入</div>
   `;
-  document.getElementById('login-pw')?.addEventListener('keydown', e=>{ if(e.key==='Enter') doLogin(); });
+  // 用真正的 <form> 送出，瀏覽器才認得出這是登入表單，才會跳出「記住密碼」的提示
+  document.getElementById('login-form')?.addEventListener('submit', e=>{ e.preventDefault(); doLogin(); });
+  // 有帶入已記住的 email 時，游標直接跳去密碼欄，不用使用者自己點
+  if(savedEmail) document.getElementById('login-pw')?.focus();
 }
 window.doLogin=async function(){
   const email = document.getElementById('login-email')?.value?.trim();
   const password = document.getElementById('login-pw')?.value;
-  if(!email||!password){ renderLoginForm('請輸入 Email 和密碼'); return; }
+  if(!email||!password){ renderLoginForm('請輸入 Email 和密碼', email); return; }
   const btn = document.getElementById('login-btn'); if(btn){ btn.disabled=true; btn.textContent='登入中...'; }
   const { data, error } = await sb.auth.signInWithPassword({ email, password });
-  if(error){ renderLoginForm('登入失敗：帳號或密碼錯誤'); return; }
+  if(error){ renderLoginForm('登入失敗：帳號或密碼錯誤', email); return; }
+  try{ localStorage.setItem('bpd_last_email', email); }catch(e){}
   const ok = await loadCurrentProfile(data.user);
   if(!ok) return; // loadCurrentProfile 內已處理錯誤訊息與登出
   hideRolePicker();
