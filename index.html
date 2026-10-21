@@ -515,33 +515,52 @@ function hideRolePicker(){
   setTimeout(()=>{ el.style.display='none'; }, 250);
 }
 
+// 簡單編碼一下密碼再存，不是真正的加密，只是避免直接明碼躺在 localStorage 裡被一眼看到
+function _pwEncode(s){ try{ return btoa(unescape(encodeURIComponent(s))); }catch(e){ return ''; } }
+function _pwDecode(s){ try{ return decodeURIComponent(escape(atob(s))); }catch(e){ return ''; } }
 function renderLoginForm(errorMsg, prefillEmail){
-  // 記住帳號：優先用這次傳進來的值（例如登入失敗時保留剛打的），沒有的話用上次成功登入存的 email
-  const savedEmail = prefillEmail!=null ? prefillEmail : (localStorage.getItem('bpd_last_email')||'');
+  // 「記住帳號」「記住密碼」勾選狀態：預設記帳號、不記密碼；登入失敗重新顯示時，保留使用者剛剛打的 email，密碼欄不帶回去
+  const rememberEmailPref = localStorage.getItem('bpd_remember_email');
+  const rememberEmailChecked = rememberEmailPref===null ? true : rememberEmailPref==='1';
+  const rememberPwChecked = localStorage.getItem('bpd_remember_pw')==='1';
+  const savedEmail = prefillEmail!=null ? prefillEmail : (rememberEmailChecked ? (localStorage.getItem('bpd_last_email')||'') : '');
+  const savedPw = (prefillEmail==null && rememberPwChecked) ? _pwDecode(localStorage.getItem('bpd_saved_pw')||'') : '';
   document.getElementById('role-picker-content').innerHTML = `
     <div class="modal-title" style="text-align:center;">佛牌殿管理系統登入</div>
     ${errorMsg?`<div style="background:rgba(192,57,43,0.1);color:#c0392b;font-size:12px;padding:8px 10px;border-radius:8px;margin-bottom:10px;text-align:center;">${errorMsg}</div>`:''}
     <form id="login-form" autocomplete="on">
       <input class="form-input" type="email" id="login-email" name="username" placeholder="Email" style="margin-bottom:10px;" autocomplete="username" value="${(savedEmail||'').replace(/"/g,'&quot;')}">
-      <input class="form-input" type="password" id="login-pw" name="password" placeholder="密碼" style="margin-bottom:14px;" autocomplete="current-password">
+      <input class="form-input" type="password" id="login-pw" name="password" placeholder="密碼" style="margin-bottom:10px;" autocomplete="current-password" value="${(savedPw||'').replace(/"/g,'&quot;')}">
+      <div style="display:flex;gap:16px;margin-bottom:14px;font-size:12px;color:var(--text2);">
+        <label style="display:flex;align-items:center;gap:5px;cursor:pointer;"><input type="checkbox" id="login-remember-email" ${rememberEmailChecked?'checked':''}> 記住帳號</label>
+        <label style="display:flex;align-items:center;gap:5px;cursor:pointer;"><input type="checkbox" id="login-remember-pw" ${rememberPwChecked?'checked':''}> 記住密碼</label>
+      </div>
       <button type="submit" class="btn btn-gold" id="login-btn">登入</button>
     </form>
     <div style="text-align:center;margin-top:12px;"><a href="#" style="font-size:12px;color:var(--text3);text-decoration:underline;" onclick="event.preventDefault();showForgotPassword();">忘記密碼？</a></div>
-    <div style="font-size:11px;color:var(--text3);text-align:center;margin-top:14px;">帳號由管理員建立，如尚未有帳號請聯繫店長<br>首次登入成功後，瀏覽器通常會跳出「儲存密碼」提示，按下儲存下次就會自動帶入</div>
+    <div style="font-size:11px;color:var(--text3);text-align:center;margin-top:14px;">帳號由管理員建立，如尚未有帳號請聯繫店長<br>「記住密碼」只存在這支裝置本機，共用電腦請不要勾選</div>
   `;
   // 用真正的 <form> 送出，瀏覽器才認得出這是登入表單，才會跳出「記住密碼」的提示
   document.getElementById('login-form')?.addEventListener('submit', e=>{ e.preventDefault(); doLogin(); });
-  // 有帶入已記住的 email 時，游標直接跳去密碼欄，不用使用者自己點
-  if(savedEmail) document.getElementById('login-pw')?.focus();
+  // 帳號、密碼都已經記住的話直接聚焦登入鈕；只記了帳號則跳去密碼欄
+  if(savedEmail && savedPw) document.getElementById('login-btn')?.focus();
+  else if(savedEmail) document.getElementById('login-pw')?.focus();
 }
 window.doLogin=async function(){
   const email = document.getElementById('login-email')?.value?.trim();
   const password = document.getElementById('login-pw')?.value;
+  const rememberEmail = document.getElementById('login-remember-email')?.checked;
+  const rememberPw = document.getElementById('login-remember-pw')?.checked;
   if(!email||!password){ renderLoginForm('請輸入 Email 和密碼', email); return; }
   const btn = document.getElementById('login-btn'); if(btn){ btn.disabled=true; btn.textContent='登入中...'; }
   const { data, error } = await sb.auth.signInWithPassword({ email, password });
   if(error){ renderLoginForm('登入失敗：帳號或密碼錯誤', email); return; }
-  try{ localStorage.setItem('bpd_last_email', email); }catch(e){}
+  try{
+    localStorage.setItem('bpd_remember_email', rememberEmail?'1':'0');
+    if(rememberEmail) localStorage.setItem('bpd_last_email', email); else localStorage.removeItem('bpd_last_email');
+    localStorage.setItem('bpd_remember_pw', rememberPw?'1':'0');
+    if(rememberPw) localStorage.setItem('bpd_saved_pw', _pwEncode(password)); else localStorage.removeItem('bpd_saved_pw');
+  }catch(e){}
   const ok = await loadCurrentProfile(data.user);
   if(!ok) return; // loadCurrentProfile 內已處理錯誤訊息與登出
   hideRolePicker();
@@ -592,6 +611,7 @@ window.doSetNewPassword=async function(){
   const { error } = await sb.auth.updateUser({ password: pw1 });
   if(error){ toast('⚠ 更新失敗：'+error.message); if(btn){ btn.disabled=false; btn.textContent='確認更改密碼'; } return; }
   history.replaceState(null, '', window.location.pathname); // 清掉網址上的重設密碼連結，避免重新整理又跳回這頁
+  try{ localStorage.removeItem('bpd_saved_pw'); localStorage.setItem('bpd_remember_pw','0'); }catch(e){} // 舊密碼已經失效，別再自動帶出來
   await sb.auth.signOut();
   toast('✅ 密碼已更新，請用新密碼重新登入');
   renderLoginForm();
