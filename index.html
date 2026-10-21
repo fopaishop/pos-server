@@ -1451,9 +1451,9 @@ function filterResultsHTML(){
         <div class="product-meta">${p.master||''} · ${p.year||''}年 · 庫存：${p.stock}</div>
         <div class="product-tags">${p.effects.slice(0,3).map(e=>`<span class="ptag ptag-effect">${e}</span>`).join('')}${p.type==='陰牌'?'<span class="ptag ptag-neg">陰牌</span>':'<span class="ptag ptag-pos">正牌</span>'}</div>
         <div class="price-tag">$${p.price.toLocaleString()}</div>
-        <div style="display:flex;gap:6px;margin-top:8px;">
-          <button class="btn btn-primary btn-sm" style="flex:1;margin-top:0;" id="cp-text-${i}" onclick="copyIntroText('${p.id}', this)">📋 複製介紹</button>
-          ${p.image?`<button class="btn btn-secondary btn-sm" style="flex:1;margin-top:0;" id="cp-img-${i}" onclick="copyProductImage('${p.id}', this)">🖼 複製圖片</button>`:''}
+        <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;">
+          <button class="btn btn-primary btn-sm" style="flex:1;margin-top:0;min-width:90px;" id="cp-text-${i}" onclick="copyIntroText('${p.id}', this)">📋 複製介紹</button>
+          ${imgCopyButtonsHTML(p, 'cp-img-'+i)}
         </div>
       </div>
     </div>`).join('');
@@ -1675,6 +1675,14 @@ window.copyProductImageAt=async function(id, idx, btn){
   if(!url) return;
   await copyImageUrl(url, btn);
 }
+// 照片標籤：第1張=正面、第2張=背面、第3張以後就叫第N張（符牌等多半至少正反兩面）
+function photoLabel(idx){ return idx===0?'正面':idx===1?'背面':`第${idx+1}張`; }
+// 一張商品可能有多張照片（正/反面），回傳每張各自一顆「複製」按鈕，方便客服分開貼給客人
+function imgCopyButtonsHTML(p, keyPrefix){
+  const imgs = (p.images&&p.images.length) ? p.images : (p.image?[p.image]:[]);
+  if(!imgs.length) return '';
+  return imgs.map((url,j)=>`<button class="btn btn-secondary btn-sm" style="flex:1;margin-top:0;min-width:72px;" id="${keyPrefix}-${j}" onclick="copyProductImageAt('${p.id}',${j},this)">🖼 ${imgs.length>1?photoLabel(j):'複製圖片'}</button>`).join('');
+}
 
 
 // ============ PRODUCTS ============
@@ -1725,7 +1733,8 @@ window.openProductDetail=function(id){
       ${imgs.map((img,i)=>`
         <div style="flex-shrink:0;">
           <img src="${img}" style="width:100px;height:100px;object-fit:cover;border-radius:10px;">
-          <button class="btn btn-secondary btn-sm" style="width:100px;margin-top:4px;padding:6px;font-size:11px;" id="detail-cp-img-${i}" onclick="copyProductImageAt('${id}',${i},this)">🖼 複製</button>
+          ${imgs.length>1?`<div style="font-size:10px;color:var(--text3);text-align:center;margin-top:2px;">${photoLabel(i)}</div>`:''}
+          <button class="btn btn-secondary btn-sm" style="width:100px;margin-top:4px;padding:6px;font-size:11px;" id="detail-cp-img-${i}" onclick="copyProductImageAt('${id}',${i},this)">🖼 複製${imgs.length>1?photoLabel(i):''}</button>
         </div>`).join('')}
     </div>` : '';
   openModal(`
@@ -1825,9 +1834,10 @@ function photoSlotsHTML(){
       html += `<div style="position:relative;">
         <img src="${_photoSlots[i]}" class="photo-preview">
         <button onclick="removePhotoSlot(${i})" style="position:absolute;top:-6px;right:-6px;width:22px;height:22px;border-radius:50%;background:#c0392b;color:#fff;border:none;font-size:12px;cursor:pointer;">✕</button>
+        <div style="font-size:10px;color:var(--text3);text-align:center;margin-top:2px;">${photoLabel(i)}</div>
       </div>`;
     } else {
-      html += `<label class="photo-upload" onclick="triggerPhotoUpload(${i})">📷</label>`;
+      html += `<div><label class="photo-upload" onclick="triggerPhotoUpload(${i})">📷</label><div style="font-size:10px;color:var(--text3);text-align:center;margin-top:2px;">${photoLabel(i)}</div></div>`;
     }
   }
   html += '</div><input type="file" id="photo-slot-input" accept="image/*" style="display:none;" onchange="onPhotoSlotFile(this)">';
