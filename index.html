@@ -173,7 +173,8 @@ html, body { height: 100%; overflow: hidden; font-family: 'Noto Sans TC', sans-s
 .modal-overlay.open { opacity: 1; pointer-events: all; }
 .modal-sheet { background: var(--white); border-radius: 20px 20px 0 0; padding: 20px; max-height: 88vh; overflow-y: auto; transform: translateY(20px); transition: transform 0.25s; position: relative; }
 .modal-overlay.open .modal-sheet { transform: translateY(0); }
-.modal-handle { width: 36px; height: 4px; border-radius: 2px; background: var(--surface2); margin: 0 auto 16px; cursor: grab; }
+.modal-handle { width: 44px; height: 5px; border-radius: 3px; background: rgba(26,10,46,0.18); margin: 0 auto 16px; cursor: grab; position: relative; }
+.modal-handle::after { content:''; position:absolute; left:-30px; right:-30px; top:-14px; bottom:-14px; }
 .modal-close-x { position: absolute; top: 14px; right: 16px; width: 32px; height: 32px; border-radius: 50%; border: none; background: var(--surface); color: var(--text2); font-size: 16px; display: flex; align-items: center; justify-content: center; cursor: pointer; z-index: 5; }
 .modal-title { font-family: 'Noto Serif TC', serif; font-size: 17px; font-weight: 600; color: var(--text); margin-bottom: 16px; }
 
@@ -238,6 +239,28 @@ html, body { height: 100%; overflow: hidden; font-family: 'Noto Sans TC', sans-s
 .swipe-del{position:absolute;top:0;right:0;bottom:0;width:84px;background:#c0392b;color:#fff;border:none;font-size:13px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;cursor:pointer;font-family:inherit;}
 .photo-uploading{width:80px;height:80px;border-radius:10px;background:var(--surface2);display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--text3);}
 .ml-icon-btn{width:28px;height:28px;border-radius:50%;border:none;cursor:pointer;background:rgba(26,10,46,0.07);color:var(--text2);font-size:13px;flex-shrink:0;}
+
+/* v1.3.0：多選下拉選單、重設預算 */
+.ms-btn{width:100%;display:flex;justify-content:space-between;align-items:center;gap:8px;padding:11px 14px;border:1.5px solid rgba(26,10,46,0.15);border-radius:var(--radius-sm);background:var(--white);font-size:14px;font-family:inherit;color:var(--text);cursor:pointer;text-align:left;}
+.ms-btn.open{border-color:var(--gold);}
+.ms-sum{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.ms-arrow{color:var(--text3);font-size:12px;transition:transform .2s;flex-shrink:0;}
+.ms-btn.open .ms-arrow{transform:rotate(180deg);}
+.ms-panel{margin-top:6px;border:1px solid rgba(26,10,46,0.12);border-radius:var(--radius-sm);background:var(--white);padding:8px;box-shadow:var(--shadow);}
+.ms-list{max-height:260px;overflow-y:auto;-webkit-overflow-scrolling:touch;}
+.ms-opt{display:flex;align-items:center;gap:10px;padding:10px 6px;border-bottom:1px solid rgba(26,10,46,0.05);font-size:14px;cursor:pointer;}
+.ms-opt input{width:18px;height:18px;accent-color:var(--deep);flex-shrink:0;}
+.ms-opt .ms-name{flex:1;min-width:0;}
+.ms-cnt{color:var(--text3);font-size:11px;flex-shrink:0;}
+.ms-foot{display:flex;gap:8px;margin-top:8px;}
+.ms-foot .btn{flex:1;margin-top:0;}
+.ms-search{margin-bottom:6px;}
+.mini-reset{border:1px solid rgba(26,10,46,0.2);background:var(--surface);color:var(--text2);font-size:11px;padding:3px 10px;border-radius:12px;cursor:pointer;font-family:inherit;}
+.mini-reset:active{background:var(--gold-pale);}
+
+/* v1.4.0 */
+.is-temple{color:#1f7a8c;font-weight:500;}
+.budget-ticks{display:flex;justify-content:space-between;font-size:10px;color:var(--text3);margin-top:2px;padding:0 2px;}
 </style>
 </head>
 <body>
@@ -263,7 +286,7 @@ html, body { height: 100%; overflow: hidden; font-family: 'Noto Sans TC', sans-s
     <button class="tab" data-page="products">商品庫</button>
     <button class="tab" data-page="customers">客戶</button>
     <button class="tab" data-page="report">報表</button>
-    <button class="tab" data-page="settings">權限設定</button>
+    <button class="tab" data-page="settings">設定</button>
   </div>
   
   <div class="content" id="content">
@@ -323,9 +346,11 @@ const SUPABASE_URL = 'https://roxwskdpnsctoaflcomt.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJveHdza2RwbnNjdG9hZmxjb210Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg0Mjk3MDAsImV4cCI6MjEwNDAwNTcwMH0.CflNz8IOx85zo-apNjJkUBISqXYGVpu5-LJ5DDBPyxw';
 const TENANT_ID = 'dbf9fcd3-110a-4dde-8ef9-40c2f89967a9';
 // ===== 版本號：每次更新請遞增，登入頁與設定頁底部都會顯示 =====
-const APP_VERSION = 'v1.2.0';
+const APP_VERSION = 'v1.4.0';
 const APP_BUILD_DATE = '2026-10-30';
 const APP_CHANGELOG = [
+  ['v1.4.0','2026-10-30',['彈窗只有從最上方（把手附近）往下拉才會關閉，內容區上下滑動不會誤關','預算快速設定條改為每格 5,000 元，範圍 0～10 萬，拉到最右＝10 萬以上（欄位仍可手動輸入到 30 萬以上）','製作師傅依商品數量由多到少排序，名字含「廟」的用藍字和師傅區分，「其他」固定在最底']],
+  ['v1.3.0','2026-10-30',['「權限設定」分頁改名為「設定」，頁內依常用程度排序：分類設定、帳號管理、身份權限、圖片搬移、操作紀錄','商品篩選的正陰牌／種類／師傅／功效改成下拉選單，全部可複選，可搜尋、顯示各選項商品數','預算範圍標題右側新增「重設預算」小按鈕','預算上限提高到 30 萬（滑桿前段細調到 6 萬，後段快速拉到 30 萬）','篩選條件一改變，下方結果立即更新']],
   ['v1.2.0','2026-10-30',['商品庫庫存加入 ＋／－ 鍵，點一下立即存檔並同步','商品詳情每個欄位點一下就能直接編輯，名稱置中','依種類自動帶入預設功效（設定頁可調整每個種類的預設功效）','商品編號依種類自動產生流水號（沿用現有編號前綴）','商品列表往左滑可刪除','照片自動壓縮、延遲載入，載入失敗會自動重試','設定頁新增「分類設定」：種類／師傅／功效可改名（已建檔商品一併更新）、刪除、新增']],
   ['v1.1.0','2026-10-22',['登入頁記住帳號／密碼、忘記密碼寄重設信','商品正面／背面照片分開複製','登入頁與設定頁顯示版本號']]
 ];
@@ -754,14 +779,16 @@ document.getElementById('tabbar').addEventListener('click', e=>{
   bar.addEventListener('click', e=>{ if(moved){ e.stopPropagation(); e.preventDefault(); } }, true);
 })();
 
-// 彈窗支援「由上往下滑動」關閉（手機常見手勢）
+// 彈窗支援「由上緣往下拉」關閉（手機常見手勢，只有把手附近有效）
 (function enableModalSwipeToClose(){
   const sheet = document.getElementById('modal-sheet');
   let startY=0, curY=0, dragging=false;
   sheet.addEventListener('touchstart', e=>{
     // 只有從彈窗上半部（含把手區）開始拖曳才視為關閉手勢，避免跟內容捲動衝突
-    if(sheet.scrollTop>0) return;
-    startY = e.touches[0].clientY; curY=startY; dragging=true;
+    // 必須是從彈窗「最上緣」(把手附近 72px 內) 開始往下拉才會關閉；內容區滑動、清單捲動都不會誤關
+    const touchY = e.touches[0].clientY;
+    if(sheet.scrollTop>2 || (touchY - sheet.getBoundingClientRect().top) > 72) return;
+    startY = touchY; curY=startY; dragging=true;
     sheet.style.transition='none';
   }, { passive:true });
   sheet.addEventListener('touchmove', e=>{
@@ -1555,9 +1582,9 @@ window.finalizeSubmitOrder=async function(forceFreeOverride){
 }
 
 // ============ FILTER ============
-let filterState = { q:'', cats:[], effects:[], masters:[], type:'不限', budgetMin:'', budgetMax:'', showOutOfStock:false };
+let filterState = { q:'', cats:[], effects:[], masters:[], types:[], budgetMin:'', budgetMax:'', showOutOfStock:false };
 function computeFilterResults(){
-  const hasFilter = filterState.q||filterState.cats.length||filterState.effects.length||filterState.masters.length||filterState.type!=='不限'||filterState.budgetMin||filterState.budgetMax;
+  const hasFilter = filterState.q||filterState.cats.length||filterState.effects.length||filterState.masters.length||filterState.types.length||filterState.budgetMin||filterState.budgetMax;
   if(!hasFilter) return { hasFilter:false, results:[] };
   const results = getProducts().filter(p=>{
     if(!filterState.showOutOfStock && p.stock<=0) return false;
@@ -1565,7 +1592,7 @@ function computeFilterResults(){
     if(filterState.cats.length && !filterState.cats.includes(p.category)) return false;
     if(filterState.effects.length && !filterState.effects.some(e=>p.effects.includes(e))) return false;
     if(filterState.masters.length && !filterState.masters.includes(p.master)) return false;
-    if(filterState.type!=='不限' && p.type!==filterState.type) return false;
+    if(filterState.types.length && !filterState.types.includes(p.type)) return false;
     if(filterState.budgetMin && p.price<parseInt(filterState.budgetMin)) return false;
     if(filterState.budgetMax && p.price>parseInt(filterState.budgetMax)) return false;
     return true;
@@ -1591,124 +1618,200 @@ function filterResultsHTML(){
       </div>
     </div>`).join('');
 }
-function renderFilter(){
-  const cats = load('cats')||CATS;
-  const effs = load('effects')||EFFECTS;
-  const masters = load('masters')||MASTERS;
-  const catChips = cats.slice(0,20).map(c=>`<span class="chip${filterState.cats.includes(c)?' on':''}" onclick="toggleFilter('cats','${c}',this)">${c}</span>`).join('') + `<span class="chip" onclick="showAllCats()">更多...</span>`;
-  const effChips = effs.map(e=>`<span class="chip${filterState.effects.includes(e)?' on':''}" onclick="toggleFilter('effects','${e}',this)">${e}</span>`).join('');
-  const masterChips = masters.map(m=>`<span class="chip${filterState.masters.includes(m)?' on':''}" onclick="toggleFilter('masters','${m}',this)">${m}</span>`).join('');
-
+// 多選下拉選單：正牌/陰牌、種類、師傅、功效
+const MS_FIELDS = {
+  types:   { label:'正牌 / 陰牌', list:null,      all:'不限',     edit:false },
+  cats:    { label:'商品種類',   list:'cats',    all:'全部種類', edit:true  },
+  masters: { label:'製作師傅',   list:'masters', all:'全部師傅', edit:true  },
+  effects: { label:'功效需求',   list:'effects', all:'全部功效', edit:true  }
+};
+let _msOpen = null;
+function isTemple(name){ return String(name||'').includes('廟'); }
+// 師傅依「商品數量」由多到少排；數量一樣照原清單順序；「其他」固定放最底
+function sortMastersBy(list, countFn){
+  const idx = new Map(list.map((v,i)=>[v,i]));
+  const rest = list.filter(v=>v!=='其他').sort((a,b)=> (countFn(b)-countFn(a)) || (idx.get(a)-idx.get(b)));
+  return rest.concat(list.filter(v=>v==='其他'));
+}
+function mastersByFreq(list){ return sortMastersBy(list || getList('masters'), v=>listUsageCount('masters', v)); }
+function mastersNameHTML(v){ return isTemple(v) ? `<span class="is-temple">${escH(v)}</span>` : escH(v); }
+const _msRendered = {};
+function msNameHTML(field, v){ return field==='masters' ? mastersNameHTML(v) : escH(v); }
+function msList(field){
+  if(field==='types') return ['正牌','陰牌'];
+  if(field==='masters') return sortMastersBy(getList('masters'), v=>msCount('masters', v));
+  return getList(MS_FIELDS[field].list);
+}
+function msCount(field, v){
+  return getProducts().filter(p=>{
+    if(!filterState.showOutOfStock && p.stock<=0) return false;
+    if(field==='types') return p.type===v;
+    if(field==='cats') return p.category===v;
+    if(field==='masters') return p.master===v;
+    return (p.effects||[]).includes(v);
+  }).length;
+}
+function msSummary(field){
+  const sel = filterState[field];
+  if(!sel.length) return `<span style="color:var(--text3);">${MS_FIELDS[field].all}</span>`;
+  if(sel.length <= 2) return sel.map(v=>msNameHTML(field,v)).join('、');
+  return `已選 ${sel.length} 項：${sel.slice(0,2).map(v=>msNameHTML(field,v)).join('、')}…`;
+}
+function msDropdownHTML(field){
+  const list = msList(field), sel = filterState[field], open = _msOpen === field;
+  _msRendered[field] = list;
   return `
-    <div class="search-bar" style="margin-bottom:8px;"><span class="search-icon">🔍</span><input type="text" placeholder="輸入商品名稱、編號或種類快速查詢..." id="f-q" value="${filterState.q}" oninput="setFilterQ(this.value)" style="padding-right:34px;"><span class="search-clear" id="f-q-clear" style="display:${filterState.q?'flex':'none'};" onclick="document.getElementById('f-q').value='';setFilterQ('');">✕</span></div>
+    <div class="ms-wrap" id="ms-${field}">
+      <button type="button" class="ms-btn${open?' open':''}" id="ms-btn-${field}" onclick="toggleMs('${field}')"><span class="ms-sum" id="ms-sum-${field}">${msSummary(field)}</span><span class="ms-arrow">▾</span></button>
+      <div class="ms-panel" id="ms-panel-${field}" style="display:${open?'block':'none'};">
+        ${list.length>8?`<input class="form-input ms-search" placeholder="搜尋..." oninput="filterMsOpts('${field}',this.value)">`:''}
+        <div class="ms-list">
+          ${list.map((v,i)=>`<label class="ms-opt" data-name="${escA(v.toLowerCase())}"><input type="checkbox" ${sel.includes(v)?'checked':''} onchange="toggleMsOpt('${field}',${i},this.checked)"><span class="ms-name">${msNameHTML(field,v)}</span><span class="ms-cnt">${msCount(field,v)}件</span></label>`).join('')}
+        </div>
+        ${field==='masters'&&list.some(isTemple)?'<div style="font-size:11px;color:var(--text3);margin:6px 2px 0;"><span class="is-temple">藍字</span>＝寺廟，其餘為師傅；依商品數量排序，「其他」固定在最底</div>':''}
+        <div class="ms-foot"><button class="btn btn-secondary btn-sm" onclick="clearMs('${field}')">清除</button><button class="btn btn-gold btn-sm" onclick="toggleMs('${field}')">完成</button></div>
+      </div>
+    </div>`;
+}
+function msBlockHTML(field){
+  const cfg = MS_FIELDS[field];
+  return `
+    <div style="background:var(--white);border-radius:var(--radius);padding:14px;margin-bottom:12px;border:1px solid rgba(26,10,46,0.06);">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin:0 0 10px;">
+        <div class="sec" style="margin:0;">${cfg.label}<span style="font-weight:400;letter-spacing:0;text-transform:none;"> （可複選）</span></div>
+        ${cfg.edit?`<button onclick="openManageListModal('${cfg.list}')" style="border:none;background:none;color:var(--gold);font-size:12px;cursor:pointer;padding:0;">✏️ 編輯／新增</button>`:''}
+      </div>
+      ${msDropdownHTML(field)}
+    </div>`;
+}
+window.toggleMs=function(field){
+  _msOpen = (_msOpen === field) ? null : field;
+  Object.keys(MS_FIELDS).forEach(f=>{
+    const panel = document.getElementById('ms-panel-'+f), btn = document.getElementById('ms-btn-'+f);
+    if(panel) panel.style.display = (_msOpen === f) ? 'block' : 'none';
+    if(btn) btn.classList.toggle('open', _msOpen === f);
+  });
+  const fab = document.querySelector('#page-filter .fab'); if(fab) fab.style.display = _msOpen ? 'none' : ''; // 下拉展開時先收起右下角 ＋，避免蓋住「完成」
+  if(_msOpen){ const w = document.getElementById('ms-'+_msOpen); if(w && w.scrollIntoView) setTimeout(()=>w.scrollIntoView({block:'nearest', behavior:'smooth'}), 50); }
+}
+window.toggleMsOpt=function(field, i, checked){
+  const v = (_msRendered[field] || msList(field))[i]; if(v === undefined) return;
+  const arr = filterState[field], k = arr.indexOf(v);
+  if(checked && k<0) arr.push(v);
+  if(!checked && k>=0) arr.splice(k,1);
+  const sum = document.getElementById('ms-sum-'+field); if(sum) sum.innerHTML = msSummary(field);
+  scheduleFilterRefresh();
+}
+window.clearMs=function(field){
+  filterState[field] = [];
+  document.querySelectorAll('#ms-panel-'+field+' input[type=checkbox]').forEach(c=>{ c.checked = false; });
+  const sum = document.getElementById('ms-sum-'+field); if(sum) sum.innerHTML = msSummary(field);
+  scheduleFilterRefresh();
+}
+window.filterMsOpts=function(field, q){
+  q = (q||'').trim().toLowerCase();
+  document.querySelectorAll('#ms-panel-'+field+' .ms-opt').forEach(r=>{ r.style.display = (!q || r.dataset.name.includes(q)) ? '' : 'none'; });
+}
+// 篩選條件一改，稍等一下（避免滑桿拖動時一直重畫）就更新下面的結果
+let _filterRefreshTimer = null;
+function scheduleFilterRefresh(){
+  clearTimeout(_filterRefreshTimer);
+  _filterRefreshTimer = setTimeout(()=>{ const el = document.getElementById('filter-results'); if(el) el.innerHTML = filterResultsHTML(); }, 250);
+}
+
+function renderFilter(){
+  return `
+    <div class="search-bar" style="margin-bottom:8px;"><span class="search-icon">🔍</span><input type="text" placeholder="輸入商品名稱、編號或種類快速查詢..." id="f-q" value="${escA(filterState.q)}" oninput="setFilterQ(this.value)" style="padding-right:34px;"><span class="search-clear" id="f-q-clear" style="display:${filterState.q?'flex':'none'};" onclick="document.getElementById('f-q').value='';setFilterQ('');">✕</span></div>
     <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text2);margin-bottom:12px;padding:0 2px;cursor:pointer;">
       <input type="checkbox" ${filterState.showOutOfStock?'checked':''} onchange="toggleShowOutOfStock()" style="width:16px;height:16px;">
       顯示無庫存商品（方便查詢已售完商品的資料，做售後服務說明用）
     </label>
     <div style="background:var(--white);border-radius:var(--radius);padding:14px;margin-bottom:12px;border:1px solid rgba(26,10,46,0.06);">
-      <div class="sec" style="margin:0 0 10px;">預算範圍 (TWD)</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin:0 0 10px;">
+        <div class="sec" style="margin:0;">預算範圍 (TWD)</div>
+        <button class="mini-reset" onclick="resetBudget()">重設預算</button>
+      </div>
       <div class="form-row">
-        <input class="form-input" type="number" placeholder="最低" id="f-min" value="${filterState.budgetMin}" oninput="syncBudgetInputsToSliders()">
-        <input class="form-input" type="number" placeholder="最高" id="f-max" value="${filterState.budgetMax}" oninput="syncBudgetInputsToSliders()">
+        <input class="form-input" type="number" inputmode="numeric" placeholder="最低" id="f-min" value="${filterState.budgetMin}" oninput="syncBudgetInputsToSliders()">
+        <input class="form-input" type="number" inputmode="numeric" placeholder="最高" id="f-max" value="${filterState.budgetMax}" oninput="syncBudgetInputsToSliders()">
       </div>
       <div class="budget-slider-wrap" style="position:relative;height:32px;margin-top:16px;">
-        <input type="range" id="f-min-slider" min="0" max="${BUDGET_MAX}" step="500" value="${filterState.budgetMin||0}" oninput="onBudgetSliderInput('min', this.value)">
-        <input type="range" id="f-max-slider" min="0" max="${BUDGET_MAX}" step="500" value="${filterState.budgetMax||BUDGET_MAX}" oninput="onBudgetSliderInput('max', this.value)">
+        <input type="range" id="f-min-slider" min="0" max="${BUDGET_POS_MAX}" step="1" value="${priceToPos(filterState.budgetMin||0)}" oninput="onBudgetSliderInput('min', this.value)">
+        <input type="range" id="f-max-slider" min="0" max="${BUDGET_POS_MAX}" step="1" value="${filterState.budgetMax?priceToPos(filterState.budgetMax):BUDGET_POS_MAX}" oninput="onBudgetSliderInput('max', this.value)">
       </div>
-      <div id="budget-range-label" style="text-align:center;font-size:12px;color:var(--text2);margin-top:2px;">${budgetLabel()}</div>
+      <div class="budget-ticks"><span>0</span><span>2.5萬</span><span>5萬</span><span>7.5萬</span><span>10萬以上</span></div>
+      <div id="budget-range-label" style="text-align:center;font-size:12px;color:var(--text2);margin-top:6px;">${budgetLabel()}</div>
     </div>
-    <div style="background:var(--white);border-radius:var(--radius);padding:14px;margin-bottom:12px;border:1px solid rgba(26,10,46,0.06);">
-      <div class="sec" style="margin:0 0 10px;">正牌 / 陰牌</div>
-      <div class="switch">
-        <button class="switch-opt${filterState.type==='不限'?' on':''}" onclick="setFilterType('不限')">不限</button>
-        <button class="switch-opt${filterState.type==='正牌'?' on':''}" onclick="setFilterType('正牌')">正牌</button>
-        <button class="switch-opt${filterState.type==='陰牌'?' on':''}" onclick="setFilterType('陰牌')">陰牌</button>
-      </div>
-    </div>
-    <div style="background:var(--white);border-radius:var(--radius);padding:14px;margin-bottom:12px;border:1px solid rgba(26,10,46,0.06);">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin:0 0 10px;">
-        <div class="sec" style="margin:0;">商品種類</div>
-        <button onclick="openManageListModal('cats')" style="border:none;background:none;color:var(--gold);font-size:12px;cursor:pointer;padding:0;">✏️ 編輯／新增</button>
-      </div>
-      <div class="chip-row">${catChips}</div>
-    </div>
-    <div style="background:var(--white);border-radius:var(--radius);padding:14px;margin-bottom:12px;border:1px solid rgba(26,10,46,0.06);">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin:0 0 10px;">
-        <div class="sec" style="margin:0;">製作師傅</div>
-        <button onclick="openManageListModal('masters')" style="border:none;background:none;color:var(--gold);font-size:12px;cursor:pointer;padding:0;">✏️ 編輯／新增</button>
-      </div>
-      <div class="chip-row">${masterChips}</div>
-    </div>
-    <div style="background:var(--white);border-radius:var(--radius);padding:14px;margin-bottom:12px;border:1px solid rgba(26,10,46,0.06);">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin:0 0 10px;">
-        <div class="sec" style="margin:0;">功效需求</div>
-        <button onclick="openManageListModal('effects')" style="border:none;background:none;color:var(--gold);font-size:12px;cursor:pointer;padding:0;">✏️ 編輯／新增</button>
-      </div>
-      <div class="chip-row">${effChips}</div>
-    </div>
+    ${msBlockHTML('types')}
+    ${msBlockHTML('cats')}
+    ${msBlockHTML('masters')}
+    ${msBlockHTML('effects')}
     <button class="btn btn-gold" onclick="runFilter()">搜尋符合商品</button>
     <button class="btn btn-secondary" style="width:100%;margin-top:8px;" onclick="clearFilter()">清除條件</button>
     <div id="filter-results" style="margin-top:16px;">${filterResultsHTML()}</div>
     <div style="height:80px;"></div>
-    <button class="fab" onclick="openNewProduct()">＋</button>`;
+    <button class="fab" style="${_msOpen?'display:none;':''}" onclick="openNewProduct()">＋</button>`;
 }
 
-const BUDGET_MAX = 60000;
+// 預算快速設定條：每格 5,000 元，0～10 萬；最右邊＝10 萬以上（不設上限）。手動輸入欄位不受 10 萬限制
+const BUDGET_STEP = 5000, BUDGET_POS_MAX = 20, BUDGET_SLIDER_MAX = BUDGET_STEP * BUDGET_POS_MAX;
+function posToPrice(pos){ return Math.max(0, Math.min(BUDGET_POS_MAX, parseInt(pos)||0)) * BUDGET_STEP; }
+function priceToPos(price){ return Math.min(BUDGET_POS_MAX, Math.max(0, Math.round((parseInt(price)||0) / BUDGET_STEP))); }
 function budgetLabel(){
   const min = filterState.budgetMin ? parseInt(filterState.budgetMin) : 0;
-  const max = filterState.budgetMax ? parseInt(filterState.budgetMax) : BUDGET_MAX;
-  return `$${min.toLocaleString()} - $${max.toLocaleString()}${!filterState.budgetMax?'+':''}`;
+  if(!filterState.budgetMax) return min >= BUDGET_SLIDER_MAX ? `$${min.toLocaleString()} 以上` : `$${min.toLocaleString()} - $${BUDGET_SLIDER_MAX.toLocaleString()} 以上`;
+  return `$${min.toLocaleString()} - $${parseInt(filterState.budgetMax).toLocaleString()}`;
 }
 window.onBudgetSliderInput=function(which, val){
-  val = parseInt(val);
+  let pos = parseInt(val);
   const minEl=document.getElementById('f-min-slider'), maxEl=document.getElementById('f-max-slider');
   if(which==='min'){
-    if(val > parseInt(maxEl.value)){ val = parseInt(maxEl.value); minEl.value = val; }
+    if(pos > parseInt(maxEl.value)){ pos = parseInt(maxEl.value); minEl.value = pos; }
   } else {
-    if(val < parseInt(minEl.value)){ val = parseInt(minEl.value); maxEl.value = val; }
+    if(pos < parseInt(minEl.value)){ pos = parseInt(minEl.value); maxEl.value = pos; }
   }
-  filterState.budgetMin = parseInt(minEl.value) > 0 ? minEl.value : '';
-  filterState.budgetMax = parseInt(maxEl.value) < BUDGET_MAX ? maxEl.value : '';
+  const minPos = parseInt(minEl.value), maxPos = parseInt(maxEl.value);
+  filterState.budgetMin = minPos > 0 ? String(posToPrice(minPos)) : '';
+  filterState.budgetMax = maxPos < BUDGET_POS_MAX ? String(posToPrice(maxPos)) : '';
   const minInput=document.getElementById('f-min'), maxInput=document.getElementById('f-max');
   if(minInput) minInput.value = filterState.budgetMin;
   if(maxInput) maxInput.value = filterState.budgetMax;
   const lbl=document.getElementById('budget-range-label'); if(lbl) lbl.textContent = budgetLabel();
+  scheduleFilterRefresh();
 }
 window.syncBudgetInputsToSliders=function(){
   filterState.budgetMin = document.getElementById('f-min')?.value || '';
   filterState.budgetMax = document.getElementById('f-max')?.value || '';
   const minEl=document.getElementById('f-min-slider'), maxEl=document.getElementById('f-max-slider');
-  if(minEl) minEl.value = filterState.budgetMin || 0;
-  if(maxEl) maxEl.value = filterState.budgetMax || BUDGET_MAX;
+  if(minEl) minEl.value = priceToPos(filterState.budgetMin || 0);
+  if(maxEl) maxEl.value = filterState.budgetMax ? priceToPos(filterState.budgetMax) : BUDGET_POS_MAX;
   const lbl=document.getElementById('budget-range-label'); if(lbl) lbl.textContent = budgetLabel();
+  scheduleFilterRefresh();
+}
+window.resetBudget=function(){
+  filterState.budgetMin = ''; filterState.budgetMax = '';
+  const minInput=document.getElementById('f-min'), maxInput=document.getElementById('f-max');
+  if(minInput) minInput.value = ''; if(maxInput) maxInput.value = '';
+  const minEl=document.getElementById('f-min-slider'), maxEl=document.getElementById('f-max-slider');
+  if(minEl) minEl.value = 0; if(maxEl) maxEl.value = BUDGET_POS_MAX;
+  const lbl=document.getElementById('budget-range-label'); if(lbl) lbl.textContent = budgetLabel();
+  scheduleFilterRefresh();
 }
 
 window.setFilterQ=function(v){
   filterState.q=v;
-  const el=document.getElementById('filter-results');
-  if(el) el.innerHTML = filterResultsHTML();
+  scheduleFilterRefresh();
   const clearBtn=document.getElementById('f-q-clear'); if(clearBtn) clearBtn.style.display = v?'flex':'none';
 }
-window.toggleFilter=function(field,val,el){ 
-  const arr=filterState[field];
-  const i=arr.indexOf(val);
-  if(i>=0) arr.splice(i,1); else arr.push(val);
-  el.classList.toggle('on');
-}
-window.setFilterType=function(val){ filterState.type=val; renderPage('filter'); }
 window.runFilter=function(){
   filterState.budgetMin=document.getElementById('f-min')?.value||'';
   filterState.budgetMax=document.getElementById('f-max')?.value||'';
+  _msOpen = null;
   renderPage('filter');
+  const r = document.getElementById('filter-results'); if(r && r.scrollIntoView) r.scrollIntoView({behavior:'smooth', block:'start'});
 }
-window.clearFilter=function(){ filterState={q:'',cats:[],effects:[],masters:[],type:'不限',budgetMin:'',budgetMax:'',showOutOfStock:false}; renderPage('filter'); }
+window.clearFilter=function(){ filterState={q:'',cats:[],effects:[],masters:[],types:[],budgetMin:'',budgetMax:'',showOutOfStock:false}; _msOpen=null; renderPage('filter'); }
 window.toggleShowOutOfStock=function(){ filterState.showOutOfStock=!filterState.showOutOfStock; renderPage('filter'); }
-window.showAllCats=function(){
-  const cats = load('cats')||CATS;
-  const html=`<div class="modal-title">選擇種類</div><div class="chip-row" style="max-height:60vh;overflow-y:auto;">` + cats.map(c=>`<span class="chip${filterState.cats.includes(c)?' on':''}" onclick="toggleFilterCat('${c}',this)">${c}</span>`).join('') + `</div><button class="btn btn-primary" onclick="_closeModal();renderPage('filter')">確認</button>`;
-  openModal(html);
-}
-window.toggleFilterCat=function(val,el){ const i=filterState.cats.indexOf(val); if(i>=0) filterState.cats.splice(i,1); else filterState.cats.push(val); el.classList.toggle('on'); }
 
 // ---- 種類/師傅/功效 清單管理（新增、改名、刪除；種類另可設定編號前綴與預設功效）----
 const LIST_CONFIG = {
@@ -1787,7 +1890,7 @@ function renderManageListModal(type){
     <div style="max-height:50vh;overflow-y:auto;margin-bottom:14px;">
       ${list.map((item,i)=>`
         <div id="ml-row-${i}" style="display:flex;align-items:center;gap:6px;padding:8px 0;border-bottom:1px solid rgba(26,10,46,0.06);">
-          <span style="font-size:13px;flex:1;word-break:break-all;">${escH(item)} <span style="color:var(--text3);font-size:11px;">${listUsageCount(type,item)}件</span></span>
+          <span style="font-size:13px;flex:1;word-break:break-all;">${type==='masters'?mastersNameHTML(item):escH(item)} <span style="color:var(--text3);font-size:11px;">${listUsageCount(type,item)}件</span></span>
           ${type==='cats'?`<button class="ml-icon-btn" onclick="openCatSettings(${i})" title="編號前綴與預設功效">⚙</button>`:''}
           <button class="ml-icon-btn" onclick="startRenameItem('${type}',${i})" title="改名">✎</button>
           <button class="ml-icon-btn" style="background:#fce4e4;color:#c0392b;" onclick="confirmRemoveManageListItem('${type}',${i})" title="刪除">✕</button>
@@ -2152,9 +2255,9 @@ window.startDetailEdit=function(id,k){
   let html = '';
   if(k==='category' || k==='master' || k==='type'){
     const opts = k==='category' ? [...new Set([p.category, ...getList('cats')].filter(Boolean))]
-               : k==='master' ? [...new Set([p.master, ...getList('masters')].filter(Boolean))]
+               : k==='master' ? mastersByFreq([...new Set([p.master, ...getList('masters')].filter(Boolean))])
                : ['正牌','陰牌'];
-    html = `<select class="form-select" id="de-${k}" onclick="event.stopPropagation()" onchange="commitDetailEdit('${id}','${k}')">${k==='master'?'<option value="">（未設定）</option>':''}${opts.map(o=>`<option value="${escA(o)}" ${o===p[k]?'selected':''}>${escH(o)}</option>`).join('')}</select>`;
+    html = `<select class="form-select" id="de-${k}" onclick="event.stopPropagation()" onchange="commitDetailEdit('${id}','${k}')">${k==='master'?'<option value="">（未設定）</option>':''}${opts.map(o=>`<option value="${escA(o)}" ${o===p[k]?'selected':''}${k==='master'&&isTemple(o)?' style="color:#1f7a8c"':''}>${escH(o)}</option>`).join('')}</select>`;
   } else if(k==='effects'){
     const cur = p.effects || [];
     html = `<div style="width:100%;" onclick="event.stopPropagation()"><div class="chip-row" id="de-effects">${[...new Set([...getList('effects'), ...cur])].map(e=>`<span class="chip${cur.includes(e)?' on':''}" onclick="this.classList.toggle('on')">${escH(e)}</span>`).join('')}</div><div style="display:flex;gap:6px;margin-top:8px;">${ok}</div></div>`;
@@ -2218,7 +2321,7 @@ window.setStock=function(id,v){
 
 // ---- 新增商品 ----
 window.openNewProduct=function(){
-  const masters=getList('masters'), cats=getList('cats'), effs=getList('effects');
+  const masters=mastersByFreq(), cats=getList('cats'), effs=getList('effects');
   _photoSlots = []; window._npEffTouched = false; window._npCodeManual = false;
   openModal(`
     <div class="modal-title">新增商品</div>
@@ -2245,7 +2348,7 @@ window.openNewProduct=function(){
       <label class="form-label">師傅/寺廟</label>
       <select class="form-select" id="np-master" onchange="if(this.value==='__new__') addOptionViaPrompt('masters',this)">
         <option value="">選擇師傅...</option>
-        ${masters.map(m=>`<option value="${escA(m)}">${escH(m)}</option>`).join('')}
+        ${masters.map(m=>`<option value="${escA(m)}"${isTemple(m)?' style="color:#1f7a8c"':''}>${escH(m)}</option>`).join('')}
         <option value="__new__">+ 新增師傅</option>
       </select>
     </div>
@@ -2368,7 +2471,7 @@ window.openEditProduct=function(id){
       <label class="form-label">師傅/寺廟</label>
       <select class="form-select" id="ep-master">
         <option value="">選擇師傅...</option>
-        ${[...new Set([p.master, ...masters].filter(Boolean))].map(m=>`<option ${m===p.master?'selected':''}>${m}</option>`).join('')}
+        ${mastersByFreq([...new Set([p.master, ...masters].filter(Boolean))]).map(m=>`<option ${m===p.master?'selected':''}${isTemple(m)?' style="color:#1f7a8c"':''}>${m}</option>`).join('')}
       </select>
     </div>
     <div class="form-block"><label class="form-label">製作年分</label><input class="form-input" id="ep-year" value="${p.year||''}"></div>
@@ -3051,7 +3154,7 @@ window.showNotif=function(){
   openModal(`<div class="modal-title">🔔 待處理提醒</div>${alerts.join('')||'<div style="text-align:center;padding:20px;color:var(--text3);">暫無待處理提醒</div>'}<button class="btn btn-secondary" style="width:100%;margin-top:14px;" onclick="_closeModal()">關閉</button>`);
 }
 
-// ============ SETTINGS (權限設定，僅管理員可見) ============
+// ============ SETTINGS (設定，僅管理員可見) ============
 const PERMISSION_LABELS = { 'orders':'訂單管理', 'new-order':'建立訂單', 'filter':'商品篩選（含客服查詢）', 'products':'商品庫管理', 'customers':'客戶管理', 'report':'報表' };
 function renderSettings(){
   if(currentRole!=='admin') return `<div class="empty-state"><div class="emoji">🔒</div><p>只有管理員能開啟這個頁面</p></div>`;
@@ -3066,12 +3169,6 @@ function renderSettings(){
   return `
     <div style="text-align:center;font-size:11px;color:var(--text3);margin-bottom:10px;cursor:pointer;" onclick="showChangelog()">佛牌殿管理系統 ${APP_VERSION}（${APP_BUILD_DATE}）· 看更新紀錄</div>
     <div style="background:var(--white);border-radius:var(--radius);padding:16px;margin-bottom:14px;border:1px solid rgba(26,10,46,0.06);">
-      <div class="sec" style="margin:0 0 4px;">身份權限</div>
-      <div style="font-size:12px;color:var(--text3);margin-bottom:10px;">管理員固定擁有所有權限，以下設定套用在「客服/門市人員」身份，會同步到所有裝置</div>
-      ${rows}
-    </div>
-
-    <div style="background:var(--white);border-radius:var(--radius);padding:16px;margin-bottom:14px;border:1px solid rgba(26,10,46,0.06);">
       <div class="sec" style="margin:0 0 4px;">分類設定</div>
       <div style="font-size:12px;color:var(--text3);margin-bottom:10px;line-height:1.6;">調整商品種類、製作師傅、功效選項。有錯字可以直接改名，已建檔的商品會一起更新；種類還能設定編號前綴與預設功效。</div>
       ${[['cats','商品種類'],['masters','製作師傅'],['effects','功效需求']].map(([t,l])=>`
@@ -3085,6 +3182,12 @@ function renderSettings(){
         <button class="btn btn-primary btn-sm" style="margin:0;" onclick="openCreateAccountModal()">＋ 新增帳號</button>
       </div>
       <div id="accounts-list"><div style="text-align:center;color:var(--text3);font-size:12px;padding:20px;">載入中...</div></div>
+    </div>
+
+    <div style="background:var(--white);border-radius:var(--radius);padding:16px;margin-bottom:14px;border:1px solid rgba(26,10,46,0.06);">
+      <div class="sec" style="margin:0 0 4px;">身份權限</div>
+      <div style="font-size:12px;color:var(--text3);margin-bottom:10px;">管理員固定擁有所有權限，以下設定套用在「客服/門市人員」身份，會同步到所有裝置</div>
+      ${rows}
     </div>
 
     <div style="background:var(--white);border-radius:var(--radius);padding:16px;margin-bottom:14px;border:1px solid rgba(26,10,46,0.06);">
