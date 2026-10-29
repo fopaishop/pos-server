@@ -9,6 +9,8 @@
 <meta name="apple-mobile-web-app-title" content="佛牌殿">
 <title>佛牌殿 POS系統</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://roxwskdpnsctoaflcomt.supabase.co" crossorigin>
+<link rel="preconnect" href="https://lh3.googleusercontent.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@400;500;600&family=Noto+Sans+TC:wght@300;400;500&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
@@ -222,6 +224,20 @@ html, body { height: 100%; overflow: hidden; font-family: 'Noto Sans TC', sans-s
 .switch { display: flex; background: var(--surface2); border-radius: 8px; padding: 3px; gap: 3px; }
 .switch-opt { flex: 1; padding: 6px; border-radius: 6px; border: none; font-size: 12px; font-family: 'Noto Sans TC', sans-serif; cursor: pointer; background: none; color: var(--text2); transition: all 0.15s; text-align: center; }
 .switch-opt.on { background: var(--deep); color: var(--gold-light); font-weight: 500; }
+
+/* v1.2.0：庫存 +/-、可編輯詳情列、左滑刪除 */
+.dr-edit{cursor:pointer;align-items:flex-start;}
+.dr-edit:active{background:rgba(212,168,67,0.08);}
+.dr-pen{color:var(--text3);font-size:12px;margin-left:6px;opacity:.7;flex-shrink:0;}
+.stk-btn{width:38px;height:38px;border-radius:50%;border:1px solid rgba(26,10,46,0.15);background:var(--white);font-size:20px;line-height:1;cursor:pointer;color:var(--text);display:flex;align-items:center;justify-content:center;padding:0;}
+.stk-btn:active{background:var(--gold-pale);}
+.stk-input{width:64px;text-align:center;height:38px;border:1px solid rgba(26,10,46,0.15);border-radius:8px;font-size:16px;font-family:inherit;background:var(--white);color:var(--text);}
+.swipe-wrap{position:relative;margin-bottom:10px;border-radius:var(--radius);overflow:hidden;}
+.swipe-wrap .product-card{margin-bottom:0;position:relative;transition:transform .2s ease;touch-action:pan-y;}
+.swipe-wrap .product-card:active{transform:none;}
+.swipe-del{position:absolute;top:0;right:0;bottom:0;width:84px;background:#c0392b;color:#fff;border:none;font-size:13px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;cursor:pointer;font-family:inherit;}
+.photo-uploading{width:80px;height:80px;border-radius:10px;background:var(--surface2);display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--text3);}
+.ml-icon-btn{width:28px;height:28px;border-radius:50%;border:none;cursor:pointer;background:rgba(26,10,46,0.07);color:var(--text2);font-size:13px;flex-shrink:0;}
 </style>
 </head>
 <body>
@@ -307,8 +323,12 @@ const SUPABASE_URL = 'https://roxwskdpnsctoaflcomt.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJveHdza2RwbnNjdG9hZmxjb210Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg0Mjk3MDAsImV4cCI6MjEwNDAwNTcwMH0.CflNz8IOx85zo-apNjJkUBISqXYGVpu5-LJ5DDBPyxw';
 const TENANT_ID = 'dbf9fcd3-110a-4dde-8ef9-40c2f89967a9';
 // ===== 版本號：每次更新請遞增，登入頁與設定頁底部都會顯示 =====
-const APP_VERSION = 'v1.1.0';
-const APP_BUILD_DATE = '2026-10-22';
+const APP_VERSION = 'v1.2.0';
+const APP_BUILD_DATE = '2026-10-30';
+const APP_CHANGELOG = [
+  ['v1.2.0','2026-10-30',['商品庫庫存加入 ＋／－ 鍵，點一下立即存檔並同步','商品詳情每個欄位點一下就能直接編輯，名稱置中','依種類自動帶入預設功效（設定頁可調整每個種類的預設功效）','商品編號依種類自動產生流水號（沿用現有編號前綴）','商品列表往左滑可刪除','照片自動壓縮、延遲載入，載入失敗會自動重試','設定頁新增「分類設定」：種類／師傅／功效可改名（已建檔商品一併更新）、刪除、新增']],
+  ['v1.1.0','2026-10-22',['登入頁記住帳號／密碼、忘記密碼寄重設信','商品正面／背面照片分開複製','登入頁與設定頁顯示版本號']]
+];
 const CLOUD_ENABLED = !SUPABASE_URL.startsWith('YOUR_') && !SUPABASE_ANON_KEY.startsWith('YOUR_') && !TENANT_ID.startsWith('YOUR_');
 const sb = CLOUD_ENABLED ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
 
@@ -318,6 +338,41 @@ let currentUser = null;     // Supabase Auth 的 user 物件
 let currentProfile = null;  // profiles 表的資料（含 role, name, tenant_id...）
 let currentRole = null;     // 'admin' | 'staff' | null（尚未登入）
 let PERMISSIONS = load('permissions') || DEFAULT_PERMISSIONS;
+
+// ===== 分類設定：種類/師傅/功效清單、各種類預設功效、編號前綴（同步到雲端 settings.config）=====
+let CONFIG = load('config') || { catEffects:{}, catPrefix:{} };
+if(!CONFIG.catEffects) CONFIG.catEffects = {};
+if(!CONFIG.catPrefix) CONFIG.catPrefix = {};
+let _configSyncOk = null; // null=還沒試過  true=已同步  false=雲端沒有 config 欄位或寫入失敗
+function configPayload(){ return { cats:getList('cats'), effects:getList('effects'), masters:getList('masters'), catEffects:CONFIG.catEffects, catPrefix:CONFIG.catPrefix }; }
+async function pushConfigToCloud(){
+  save('config', CONFIG);
+  if(!CLOUD_ENABLED) return;
+  try{
+    const { error } = await sb.from('settings').upsert({ tenant_id:TENANT_ID, config:configPayload() });
+    if(error) throw error;
+    _configSyncOk = true;
+  }catch(e){ _configSyncOk = false; console.warn('分類設定寫入雲端失敗（可能還沒執行 v1.2.0 的 SQL，或不是管理員）', e); }
+}
+async function syncConfigFromCloud(){
+  if(!CLOUD_ENABLED) return;
+  try{
+    const { data, error } = await sb.from('settings').select('config').eq('tenant_id', TENANT_ID).maybeSingle();
+    if(error) throw error;
+    const c = data && data.config;
+    if(c && (c.cats || c.masters || c.effects)){
+      if(c.cats) save('cats', c.cats);
+      if(c.effects) save('effects', c.effects);
+      if(c.masters) save('masters', c.masters);
+      CONFIG = { catEffects:c.catEffects||{}, catPrefix:c.catPrefix||{} };
+      save('config', CONFIG);
+      _configSyncOk = true;
+    } else {
+      _configSyncOk = true;
+      if(currentRole === 'admin') await pushConfigToCloud(); // 雲端還沒有設定 → 管理員把目前這台的清單上傳當初始值
+    }
+  }catch(e){ _configSyncOk = false; console.warn('分類設定雲端同步失敗，改用本機設定', e); }
+}
 
 function load(k) { try { const r=localStorage.getItem('bpd_'+k); return r?JSON.parse(r):null; } catch(e){return null;} }
 function save(k,d) { try { localStorage.setItem('bpd_'+k, JSON.stringify(d)); } catch(e){} }
@@ -402,7 +457,7 @@ window.migrateLocalToCloud=async function(){
 
 async function syncAllFromCloud(){
   if(!CLOUD_ENABLED) return;
-  await Promise.all([syncProductsFromCloud(), syncOrdersFromCloud(), syncCustomersFromCloud(), syncPermissionsFromCloud()]);
+  await Promise.all([syncProductsFromCloud(), syncOrdersFromCloud(), syncCustomersFromCloud(), syncPermissionsFromCloud(), syncConfigFromCloud()]);
 }
 
 // ---- 權限設定 ----
@@ -1082,7 +1137,7 @@ window.openEditOrderProductPicker=function(id){
     <button class="btn btn-secondary btn-sm" style="width:100%;margin-bottom:10px;" onclick="openEditOrderCustomItem('${id}')">✏️ 其他（手動輸入）</button>
     <div style="max-height:55vh;overflow-y:auto;">${products.map(p=>`
       <div class="product-card" onclick="editOrderAddProduct('${p.id}','${id}')">
-        <div class="product-img" style="width:44px;height:44px;font-size:18px;overflow:hidden;">${p.image?`<img src="${p.image}" style="width:100%;height:100%;object-fit:cover;">`:'🏺'}</div>
+        <div class="product-img" style="width:44px;height:44px;font-size:18px;overflow:hidden;">${imgTag(p.image,160)||'🏺'}</div>
         <div><div class="product-name">${p.name}</div><div class="product-meta">${p.code}</div><div style="font-size:13px;font-weight:500;">$${p.price.toLocaleString()}</div></div>
       </div>`).join('')}</div>
   `);
@@ -1358,7 +1413,7 @@ function renderProductPickerModal(){
     <button class="btn btn-secondary btn-sm" style="width:100%;margin-bottom:10px;" onclick="openCustomItemForm()">✏️ 其他（手動輸入品名與金額）</button>
     <div id="pp-results" style="max-height:50vh;overflow-y:auto;">${products.map(p=>`
       <div class="product-card" onclick="addProduct('${p.id}')">
-        <div class="product-img" style="width:44px;height:44px;font-size:18px;overflow:hidden;">${p.image?`<img src="${p.image}" style="width:100%;height:100%;object-fit:cover;">`:'🏺'}</div>
+        <div class="product-img" style="width:44px;height:44px;font-size:18px;overflow:hidden;">${imgTag(p.image,160)||'🏺'}</div>
         <div>
           <div class="product-name">${p.name}</div>
           <div class="product-meta">${p.code} · 庫存：${p.stock}</div>
@@ -1375,7 +1430,7 @@ window.setProductPickerSearch=function(v){
     const products = getProducts().filter(p=> !v || p.name.includes(v) || p.code.includes(v) || p.category.includes(v));
     results.innerHTML = products.map(p=>`
       <div class="product-card" onclick="addProduct('${p.id}')">
-        <div class="product-img" style="width:44px;height:44px;font-size:18px;overflow:hidden;">${p.image?`<img src="${p.image}" style="width:100%;height:100%;object-fit:cover;">`:'🏺'}</div>
+        <div class="product-img" style="width:44px;height:44px;font-size:18px;overflow:hidden;">${imgTag(p.image,160)||'🏺'}</div>
         <div>
           <div class="product-name">${p.name}</div>
           <div class="product-meta">${p.code} · 庫存：${p.stock}</div>
@@ -1523,10 +1578,10 @@ function filterResultsHTML(){
   if(!results.length) return `<div class="empty-state"><div class="emoji">🔍</div><p>無符合商品</p></div>`;
   return results.map((p,i)=>`
     <div class="product-card" style="align-items:flex-start;${p.stock<=0?'opacity:0.6;':''}">
-      <div class="product-img" style="font-size:22px;overflow:hidden;" onclick="openProductDetail('${p.id}')">${p.image?`<img src="${p.image}" style="width:100%;height:100%;object-fit:cover;">`:'🏺'}</div>
+      <div class="product-img" style="font-size:22px;overflow:hidden;" onclick="openProductDetail('${p.id}')">${imgTag(p.image,160)||'🏺'}</div>
       <div style="flex:1;">
         <div class="product-name" onclick="openProductDetail('${p.id}')">${p.name}${p.stock<=0?' <span style="color:#c0392b;font-size:11px;">（無庫存）</span>':''}</div>
-        <div class="product-meta">${p.master||''} · ${p.year||''}年 · 庫存：${p.stock}</div>
+        <div class="product-meta">${escH([p.master, p.year?p.year+'年':'', '庫存：'+p.stock].filter(Boolean).join(' · '))}</div>
         <div class="product-tags">${p.effects.slice(0,3).map(e=>`<span class="ptag ptag-effect">${e}</span>`).join('')}${p.type==='陰牌'?'<span class="ptag ptag-neg">陰牌</span>':'<span class="ptag ptag-pos">正牌</span>'}</div>
         <div class="price-tag">$${p.price.toLocaleString()}</div>
         <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;">
@@ -1655,48 +1710,194 @@ window.showAllCats=function(){
 }
 window.toggleFilterCat=function(val,el){ const i=filterState.cats.indexOf(val); if(i>=0) filterState.cats.splice(i,1); else filterState.cats.push(val); el.classList.toggle('on'); }
 
-// ---- 種類/師傅/功效 清單管理（新增、刪除選項） ----
+// ---- 種類/師傅/功效 清單管理（新增、改名、刪除；種類另可設定編號前綴與預設功效）----
 const LIST_CONFIG = {
   cats: { key:'cats', label:'商品種類', fallback: CATS },
   effects: { key:'effects', label:'功效需求', fallback: EFFECTS },
   masters: { key:'masters', label:'製作師傅', fallback: MASTERS }
 };
-window.openManageListModal=function(type){ renderManageListModal(type); }
+function getList(type){ const cfg = LIST_CONFIG[type]; return load(cfg.key) || cfg.fallback; }
+function escH(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function escA(s){ return escH(s).replace(/"/g,'&quot;'); }
+function listUsageCount(type, v){
+  const ps = getProducts();
+  if(type==='cats') return ps.filter(p=>p.category===v).length;
+  if(type==='masters') return ps.filter(p=>p.master===v).length;
+  return ps.filter(p=>(p.effects||[]).includes(v)).length;
+}
+// 商品編號前綴：優先用設定頁指定的；沒指定就看這個種類現有商品最常用的英文字母；都沒有就挑一個沒被用過的字母
+function catPrefixFor(cat){
+  if(CONFIG.catPrefix && CONFIG.catPrefix[cat]) return CONFIG.catPrefix[cat].toUpperCase();
+  const products = getProducts();
+  const prefixOf = c => { const m = String(c||'').match(/^([A-Za-z]+)\d+$/); return m ? m[1].toUpperCase() : null; };
+  const cnt = {};
+  products.filter(p=>p.category===cat).forEach(p=>{ const k = prefixOf(p.code); if(k) cnt[k] = (cnt[k]||0)+1; });
+  const best = Object.entries(cnt).sort((x,y)=>y[1]-x[1])[0];
+  if(best) return best[0];
+  const used = new Set([...Object.values(CONFIG.catPrefix||{}).map(x=>x.toUpperCase()), ...products.map(p=>prefixOf(p.code)).filter(Boolean)]);
+  for(const ch of 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'){ if(!used.has(ch)) return ch; }
+  return 'Z';
+}
+function nextProductCode(cat){
+  const prefix = catPrefixFor(cat);
+  const re = new RegExp('^'+prefix+'(\\d+)$','i');
+  let max = 0;
+  getProducts().forEach(p=>{ const m = String(p.code||'').match(re); if(m) max = Math.max(max, parseInt(m[1],10)); });
+  return prefix + String(max+1).padStart(3,'0');
+}
+async function pushProductsBatch(arr){
+  if(!CLOUD_ENABLED || !arr.length) return;
+  try{
+    for(let i=0;i<arr.length;i+=100){
+      const { error } = await sb.from('products').upsert(arr.slice(i,i+100).map(productToRow));
+      if(error) throw error;
+    }
+  }catch(e){ console.error('批次寫入雲端失敗', e); toast('⚠ 雲端同步失敗，請檢查網路'); }
+}
+// 改名時，把已經建檔的商品一起改（避免改了清單、舊商品還掛著錯字）
+async function cascadeRename(type, oldV, newV){
+  const products = getProducts(); const touched = [];
+  products.forEach(p=>{
+    if(type==='cats' && p.category===oldV){ p.category = newV; touched.push(p); }
+    else if(type==='masters' && p.master===oldV){ p.master = newV; touched.push(p); }
+    else if(type==='effects' && (p.effects||[]).includes(oldV)){ p.effects = [...new Set(p.effects.map(e=>e===oldV?newV:e))]; touched.push(p); }
+  });
+  if(touched.length){ save('products', products); await pushProductsBatch(touched); }
+  if(type==='cats'){
+    ['catEffects','catPrefix'].forEach(k=>{ if(CONFIG[k][oldV] !== undefined){ CONFIG[k][newV] = CONFIG[k][oldV]; delete CONFIG[k][oldV]; } });
+    filterState.cats = filterState.cats.map(c=>c===oldV?newV:c);
+  }
+  if(type==='effects'){
+    Object.keys(CONFIG.catEffects).forEach(k=>{ CONFIG.catEffects[k] = CONFIG.catEffects[k].map(e=>e===oldV?newV:e); });
+    filterState.effects = filterState.effects.map(e=>e===oldV?newV:e);
+  }
+  if(type==='masters') filterState.masters = filterState.masters.map(m=>m===oldV?newV:m);
+  return touched.length;
+}
+window.openManageListModal=function(type){
+  if(currentRole !== 'admin'){ toast('⚠ 只有管理員可以調整分類設定'); return; }
+  renderManageListModal(type);
+}
 function renderManageListModal(type){
   const cfg = LIST_CONFIG[type];
-  const list = load(cfg.key)||cfg.fallback;
+  const list = getList(type);
   openModal(`
     <div class="modal-title">管理${cfg.label}</div>
+    <div style="font-size:11px;color:var(--text3);margin:-8px 0 10px;line-height:1.6;">有錯字可以按 ✎ 直接改名，已建檔的商品會一起更新。${type==='cats'?'按 ⚙ 可設定這個種類的編號前綴與預設功效。':''}</div>
     <div style="max-height:50vh;overflow-y:auto;margin-bottom:14px;">
       ${list.map((item,i)=>`
-        <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid rgba(26,10,46,0.06);">
-          <span style="font-size:13px;">${item}</span>
-          <button onclick="removeManageListItem('${type}',${i})" style="width:26px;height:26px;border-radius:50%;border:none;background:#fce4e4;color:#c0392b;cursor:pointer;">✕</button>
+        <div id="ml-row-${i}" style="display:flex;align-items:center;gap:6px;padding:8px 0;border-bottom:1px solid rgba(26,10,46,0.06);">
+          <span style="font-size:13px;flex:1;word-break:break-all;">${escH(item)} <span style="color:var(--text3);font-size:11px;">${listUsageCount(type,item)}件</span></span>
+          ${type==='cats'?`<button class="ml-icon-btn" onclick="openCatSettings(${i})" title="編號前綴與預設功效">⚙</button>`:''}
+          <button class="ml-icon-btn" onclick="startRenameItem('${type}',${i})" title="改名">✎</button>
+          <button class="ml-icon-btn" style="background:#fce4e4;color:#c0392b;" onclick="confirmRemoveManageListItem('${type}',${i})" title="刪除">✕</button>
         </div>`).join('')}
     </div>
     <div style="display:flex;gap:8px;">
       <input class="form-input" id="ml-new-item" placeholder="新增${cfg.label}..." style="flex:1;">
       <button class="btn btn-gold" style="width:auto;margin-top:0;padding:0 16px;" onclick="addManageListItem('${type}')">新增</button>
     </div>
-    <button class="btn btn-secondary" style="width:100%;margin-top:14px;" onclick="_closeModal();renderPage('filter')">完成</button>
+    <button class="btn btn-secondary" style="width:100%;margin-top:14px;" onclick="_closeModal();renderPage(currentPage)">完成</button>
   `);
 }
-window.removeManageListItem=function(type,i){
-  const cfg=LIST_CONFIG[type];
-  const list=[...(load(cfg.key)||cfg.fallback)];
-  list.splice(i,1);
-  save(cfg.key,list);
+window.startRenameItem=function(type,i){
+  const row = document.getElementById('ml-row-'+i); if(!row) return;
+  const old = getList(type)[i];
+  row.innerHTML = `
+    <input class="form-input" id="ml-rename" value="${escA(old)}" style="flex:1;padding:6px 10px;" onkeydown="if(event.key==='Enter'){event.preventDefault();commitRenameItem('${type}',${i});}">
+    <button class="ml-icon-btn" style="background:var(--gold);color:var(--deep);" onclick="commitRenameItem('${type}',${i})">✓</button>
+    <button class="ml-icon-btn" onclick="renderManageListModal('${type}')">✕</button>`;
+  const inp = document.getElementById('ml-rename'); if(inp){ inp.focus(); inp.select(); }
+}
+window.commitRenameItem=async function(type,i){
+  const cfg = LIST_CONFIG[type];
+  const nv = (document.getElementById('ml-rename')?.value||'').trim();
+  const list = [...getList(type)]; const old = list[i];
+  if(!nv){ toast('⚠ 名稱不能空白'); return; }
+  if(nv === old){ renderManageListModal(type); return; }
+  if(list.includes(nv)){ toast('⚠ 已經有相同名稱的項目'); return; }
+  list[i] = nv; save(cfg.key, list);
+  const n = await cascadeRename(type, old, nv);
+  await pushConfigToCloud();
+  await logActivity('修改'+cfg.label, `${old} → ${nv}（同步更新 ${n} 件商品）`);
+  toast(`✅ 已改名${n?`，並更新 ${n} 件商品`:''}`);
   renderManageListModal(type);
 }
-window.addManageListItem=function(type){
-  const cfg=LIST_CONFIG[type];
-  const val=document.getElementById('ml-new-item')?.value?.trim();
+window.confirmRemoveManageListItem=function(type,i){
+  const cfg = LIST_CONFIG[type]; const item = getList(type)[i];
+  const n = listUsageCount(type,item);
+  if(!n){ removeManageListItem(type,i); return; }
+  openModal(`
+    <div class="modal-title">刪除${cfg.label}</div>
+    <div style="font-size:14px;margin-bottom:6px;">確定要刪除「${escH(item)}」嗎？</div>
+    <div style="font-size:12px;color:#c0392b;margin-bottom:18px;line-height:1.6;">目前有 ${n} 件商品使用這個選項。刪除後商品上的資料會保留，但這個選項不會再出現在選單裡。如果只是打錯字，請改用「✎ 改名」。</div>
+    <button class="btn" style="width:100%;background:#c0392b;color:#fff;" onclick="removeManageListItem('${type}',${i})">確定刪除</button>
+    <button class="btn btn-secondary" style="width:100%;margin-top:8px;" onclick="renderManageListModal('${type}')">取消</button>`);
+}
+window.removeManageListItem=async function(type,i){
+  const cfg = LIST_CONFIG[type];
+  const list = [...getList(type)];
+  const [removed] = list.splice(i,1);
+  save(cfg.key, list);
+  if(type==='cats'){ delete CONFIG.catEffects[removed]; delete CONFIG.catPrefix[removed]; }
+  if(type==='effects'){ Object.keys(CONFIG.catEffects).forEach(k=>{ CONFIG.catEffects[k] = CONFIG.catEffects[k].filter(e=>e!==removed); }); }
+  await pushConfigToCloud();
+  await logActivity('刪除'+cfg.label, removed);
+  renderManageListModal(type);
+}
+window.addManageListItem=async function(type){
+  const cfg = LIST_CONFIG[type];
+  const val = document.getElementById('ml-new-item')?.value?.trim();
   if(!val){ toast('⚠ 請輸入名稱'); return; }
-  const list=[...(load(cfg.key)||cfg.fallback)];
+  const list = [...getList(type)];
   if(list.includes(val)){ toast('⚠ 已存在相同項目'); return; }
   list.push(val);
-  save(cfg.key,list);
+  save(cfg.key, list);
+  await pushConfigToCloud();
   renderManageListModal(type);
+}
+// 每個種類：編號前綴 + 預設功效
+window.openCatSettings=function(i){
+  const cat = getList('cats')[i]; if(cat===undefined) return;
+  const defs = CONFIG.catEffects[cat] || [];
+  const pre = CONFIG.catPrefix[cat] || '';
+  openModal(`
+    <div class="modal-title">${escH(cat)}・種類設定</div>
+    <div class="form-block">
+      <label class="form-label">商品編號前綴（英文字母）</label>
+      <input class="form-input" id="cs-prefix" maxlength="3" value="${escA(pre)}" placeholder="自動：${catPrefixFor(cat)}" style="text-transform:uppercase;">
+      <div style="font-size:11px;color:var(--text3);margin-top:4px;">留空＝自動沿用這個種類現有商品的編號字母。目前下一個編號會是 ${nextProductCode(cat)}</div>
+    </div>
+    <div class="form-block">
+      <label class="form-label">預設功效（新增這個種類的商品時自動勾選）</label>
+      <div class="chip-row" id="cs-effects">${getList('effects').map(e=>`<span class="chip${defs.includes(e)?' on':''}" onclick="this.classList.toggle('on')">${escH(e)}</span>`).join('')}</div>
+    </div>
+    <button class="btn btn-gold" style="width:100%;" onclick="saveCatSettings(${i})">儲存</button>
+    <button class="btn btn-secondary" style="width:100%;margin-top:8px;" onclick="renderManageListModal('cats')">返回</button>`);
+}
+window.saveCatSettings=async function(i){
+  const cat = getList('cats')[i]; if(cat===undefined) return;
+  const pre = (document.getElementById('cs-prefix')?.value||'').replace(/[^A-Za-z]/g,'').toUpperCase();
+  const effs = [...document.querySelectorAll('#cs-effects .chip.on')].map(c=>c.textContent);
+  if(pre) CONFIG.catPrefix[cat] = pre; else delete CONFIG.catPrefix[cat];
+  if(effs.length) CONFIG.catEffects[cat] = effs; else delete CONFIG.catEffects[cat];
+  await pushConfigToCloud();
+  await logActivity('修改種類設定', `${cat}：前綴 ${pre||'自動'}、預設功效 ${effs.join('、')||'無'}`);
+  toast('✅ 已儲存');
+  renderManageListModal('cats');
+}
+// 新增商品表單裡「＋ 新增種類/師傅」
+window.addOptionViaPrompt=async function(type, sel){
+  const cfg = LIST_CONFIG[type];
+  if(currentRole !== 'admin'){ toast('⚠ 只有管理員可以新增'+cfg.label+'選項'); sel.value=''; return; }
+  const v = (prompt('輸入新的'+cfg.label+'名稱：')||'').trim();
+  if(!v){ sel.value=''; return; }
+  const list = [...getList(type)];
+  if(!list.includes(v)){ list.push(v); save(cfg.key, list); await pushConfigToCloud(); }
+  let opt = [...sel.options].find(o=>o.value===v);
+  if(!opt){ opt = document.createElement('option'); opt.value = v; opt.textContent = v; sel.insertBefore(opt, sel.querySelector('option[value="__new__"]')); }
+  sel.value = v;
+  sel.dispatchEvent(new Event('change'));
 }
 
 // ---- 客服用：一鍵複製介紹文字 / 商品圖片，方便貼到 LINE 聊天室 ----
@@ -1763,114 +1964,276 @@ function imgCopyButtonsHTML(p, keyPrefix){
 }
 
 
+// ============ 圖片：縮圖、延遲載入、失敗重試 ============
+function driveId(url){
+  const m = String(url||'').match(/drive\.google\.com\/(?:thumbnail\?id=|uc\?(?:export=\w+&)?id=|file\/d\/|open\?id=)([\w-]+)/) || String(url||'').match(/googleusercontent\.com\/d\/([\w-]+)/);
+  return m ? m[1] : null;
+}
+function imgThumb(url, w){
+  const id = driveId(url);
+  return id ? `https://lh3.googleusercontent.com/d/${id}=w${w||400}` : url;
+}
+function imgTag(url, w, extraStyle){
+  if(!url) return '';
+  const orig = String(url).startsWith('data:') ? '' : ` data-orig="${escA(url)}"`;
+  return `<img src="${escA(imgThumb(url,w))}"${orig} loading="lazy" decoding="async" onerror="imgFallback(this)" style="width:100%;height:100%;object-fit:cover;${extraStyle||''}">`;
+}
+window.imgFallback=function(el){
+  const o = el.dataset.orig || '';
+  if(o && !el.dataset.tried){
+    el.dataset.tried = '1';
+    const id = driveId(o);
+    el.src = id ? `https://drive.google.com/thumbnail?id=${id}&sz=w400` : o + (o.includes('?')?'&':'?') + 'r=' + Date.now();
+    return;
+  }
+  el.onerror = null; el.style.display = 'none';
+  const sp = document.createElement('span'); sp.textContent = '🏺'; sp.style.cssText = 'font-size:22px;opacity:.7;';
+  el.parentNode && el.parentNode.appendChild(sp);
+};
+
 // ============ PRODUCTS ============
 let productSearch = '';
+let _sw = null, _swOpen = null;
+function productMeta(p){ return [p.code, p.master, p.year?p.year+'年':''].filter(Boolean).join(' · '); }
 function productCardsHTML(products){
+  _swOpen = null;
   return products.map(p=>`
-    <div class="product-card" onclick="openProductDetail('${p.id}')">
-      <div class="product-img" style="font-size:24px;overflow:hidden;">${p.image?`<img src="${p.image}" style="width:100%;height:100%;object-fit:cover;">`:'🏺'}</div>
-      <div style="flex:1;">
-        <div class="product-name">${p.name}</div>
-        <div class="product-meta">${p.code} · ${p.master} · ${p.year}年</div>
-        <div class="product-tags">
-          ${p.effects.slice(0,3).map(e=>`<span class="ptag ptag-effect">${e}</span>`).join('')}
-          <span class="ptag ${p.type==='陰牌'?'ptag-neg':'ptag-pos'}">${p.type}</span>
-        </div>
-        <div style="display:flex;gap:12px;margin-top:6px;align-items:center;">
-          <span class="price-tag">$${p.price.toLocaleString()}</span>
-          <span class="stock-tag ${p.stock<=1?'stock-low':''}">庫存：${p.stock}</span>
+    <div class="swipe-wrap">
+      <button class="swipe-del" onclick="confirmDeleteProduct('${p.id}')"><span style="font-size:18px;">🗑</span>刪除</button>
+      <div class="product-card" ontouchstart="swStart(event)" ontouchmove="swMove(event)" ontouchend="swEnd(event)" ontouchcancel="swEnd(event)" onclick="swTap(this,'${p.id}')">
+        <div class="product-img" style="font-size:24px;overflow:hidden;">${imgTag(p.image,160)||'🏺'}</div>
+        <div style="flex:1;min-width:0;">
+          <div class="product-name">${escH(p.name)}</div>
+          <div class="product-meta">${escH(productMeta(p))}</div>
+          <div class="product-tags">
+            ${(p.effects||[]).slice(0,3).map(e=>`<span class="ptag ptag-effect">${escH(e)}</span>`).join('')}
+            <span class="ptag ${p.type==='陰牌'?'ptag-neg':'ptag-pos'}">${p.type}</span>
+          </div>
+          <div style="display:flex;gap:12px;margin-top:6px;align-items:center;">
+            <span class="price-tag">$${(p.price||0).toLocaleString()}</span>
+            <span class="stock-tag ${p.stock<=1?'stock-low':''}">庫存：${p.stock}</span>
+          </div>
         </div>
       </div>
     </div>`).join('') || '<div class="empty-state"><div class="emoji">📦</div><p>無商品資料</p></div>';
 }
+// 左滑顯示刪除鈕
+window.swStart=function(e){
+  const card = e.currentTarget, t = e.touches[0];
+  if(_swOpen && _swOpen !== card) swClose(_swOpen);
+  _sw = { card, x:t.clientX, y:t.clientY, dx:0, locked:null, base: card.classList.contains('sw-open') ? -84 : 0 };
+}
+window.swMove=function(e){
+  if(!_sw) return;
+  const t = e.touches[0], dx = t.clientX - _sw.x, dy = t.clientY - _sw.y;
+  if(_sw.locked === null){
+    if(Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
+    _sw.locked = Math.abs(dx) > Math.abs(dy) ? 'h' : 'v';
+    if(_sw.locked === 'h') _sw.card.style.transition = 'none';
+  }
+  if(_sw.locked !== 'h') return;
+  _sw.dx = dx;
+  const x = Math.min(0, Math.max(-120, _sw.base + dx));
+  _sw.card.style.transform = `translateX(${x}px)`;
+}
+window.swEnd=function(e){
+  if(!_sw) return;
+  const s = _sw; _sw = null;
+  s.card.style.transition = '';
+  if(s.locked !== 'h') return;
+  if(s.base + s.dx < -50){ s.card.style.transform = 'translateX(-84px)'; s.card.classList.add('sw-open'); _swOpen = s.card; }
+  else { swClose(s.card); }
+  s.card.dataset.swiped = '1';
+  setTimeout(()=>{ delete s.card.dataset.swiped; }, 350);
+}
+function swClose(card){ card.style.transform = ''; card.classList.remove('sw-open'); if(_swOpen === card) _swOpen = null; }
+window.swTap=function(card,id){
+  if(card.dataset.swiped) return;
+  if(card.classList.contains('sw-open')){ swClose(card); return; }
+  openProductDetail(id);
+}
+
 function renderProducts(){
   const products = getProducts().filter(p=> !productSearch || p.name.includes(productSearch)||p.code.includes(productSearch)||p.category.includes(productSearch));
   return `
     <div style="display:flex;gap:8px;align-items:center;">
-      <div class="search-bar" style="flex:1;"><span class="search-icon">🔍</span><input type="text" placeholder="搜尋商品名稱、種類..." id="prod-search" value="${productSearch}" oninput="setProdSearch(this.value)" style="padding-right:34px;"><span class="search-clear" id="prod-search-clear" style="display:${productSearch?'flex':'none'};" onclick="document.getElementById('prod-search').value='';setProdSearch('');">✕</span></div>
+      <div class="search-bar" style="flex:1;"><span class="search-icon">🔍</span><input type="text" placeholder="搜尋商品名稱、種類..." id="prod-search" value="${escA(productSearch)}" oninput="setProdSearch(this.value)" style="padding-right:34px;"><span class="search-clear" id="prod-search-clear" style="display:${productSearch?'flex':'none'};" onclick="document.getElementById('prod-search').value='';setProdSearch('');">✕</span></div>
       <button class="topbar-btn" style="background:rgba(26,10,46,0.08);flex-shrink:0;" onclick="refreshProductsFromCloud()" title="同步雲端最新資料">🔄</button>
       <button class="topbar-btn" style="background:rgba(26,10,46,0.08);flex-shrink:0;width:auto;padding:0 10px;font-size:12px;" onclick="openBulkImportModal()" title="批量匯入商品">📥 匯入</button>
     </div>
     ${CLOUD_ENABLED?'':'<div style="font-size:11px;color:var(--text3);margin:4px 2px 8px;">⚠ 尚未連接雲端資料庫，目前僅本機資料</div>'}
+    <div style="font-size:11px;color:var(--text3);margin:6px 2px 8px;">💡 商品往左滑可以刪除；點進商品可直接修改各欄位</div>
     <div id="products-list">${productCardsHTML(products)}</div>
     <div style="height:80px;"></div>
     <button class="fab" onclick="openNewProduct()">＋</button>`;
 }
+function filteredProductsForList(){
+  const v = productSearch;
+  return getProducts().filter(p=> !v || p.name.includes(v)||p.code.includes(v)||p.category.includes(v));
+}
 window.setProdSearch=function(v){
   productSearch=v;
   const el=document.getElementById('products-list');
-  if(el) el.innerHTML = productCardsHTML(getProducts().filter(p=> !v || p.name.includes(v)||p.code.includes(v)||p.category.includes(v)));
+  if(el) el.innerHTML = productCardsHTML(filteredProductsForList());
   const clearBtn=document.getElementById('prod-search-clear'); if(clearBtn) clearBtn.style.display = v?'flex':'none';
 }
+// 不重畫整頁，只更新背後的商品列表/篩選結果（modal 開著時用）
+function refreshProductListQuiet(){
+  const el = document.getElementById('products-list');
+  if(el) el.innerHTML = productCardsHTML(filteredProductsForList());
+  const f = document.getElementById('filter-results');
+  if(f && currentPage==='filter') f.innerHTML = filterResultsHTML();
+}
 
-window.openProductDetail=function(id){
-  const p=getProductById(id); if(!p)return;
+// ---- 商品詳情：每個欄位點一下就能直接編輯 ----
+const DETAIL_LABELS = { name:'名稱', code:'商品編號', category:'種類', type:'正/陰牌', master:'師傅/寺廟', year:'製作年分', material:'材料', feature:'特色', effects:'功效', price:'售價' };
+function detailRow(p,k,valHTML){
+  return `<div class="detail-row dr-edit" id="dr-${k}" onclick="startDetailEdit('${p.id}','${k}')"><span class="detail-key">${DETAIL_LABELS[k]}</span><span class="detail-val" id="dv-${k}">${valHTML || '<span style="color:var(--text3);">點擊填寫</span>'}</span><span class="dr-pen">✎</span></div>`;
+}
+function productDetailHTML(p){
+  const id = p.id;
   const imgs = (p.images&&p.images.length?p.images:(p.image?[p.image]:[]));
   const gallery = imgs.length ? `
     <div style="display:flex;gap:8px;overflow-x:auto;margin-bottom:14px;">
       ${imgs.map((img,i)=>`
         <div style="flex-shrink:0;">
-          <img src="${img}" style="width:100px;height:100px;object-fit:cover;border-radius:10px;">
+          <div style="width:100px;height:100px;border-radius:10px;overflow:hidden;background:var(--surface2);display:flex;align-items:center;justify-content:center;">${imgTag(img,300)}</div>
           ${imgs.length>1?`<div style="font-size:10px;color:var(--text3);text-align:center;margin-top:2px;">${photoLabel(i)}</div>`:''}
           <button class="btn btn-secondary btn-sm" style="width:100px;margin-top:4px;padding:6px;font-size:11px;" id="detail-cp-img-${i}" onclick="copyProductImageAt('${id}',${i},this)">🖼 複製${imgs.length>1?photoLabel(i):''}</button>
         </div>`).join('')}
     </div>` : '';
-  openModal(`
-    <div class="modal-title">${p.name}</div>
+  return `
+    <div class="modal-title" id="dr-name" style="text-align:center;cursor:pointer;" onclick="startDetailEdit('${id}','name')"><span id="dv-name">${escH(p.name)}</span><span class="dr-pen">✎</span></div>
     ${gallery}
-    <div class="detail-row"><span class="detail-key">商品編號</span><span class="detail-val">${p.code}</span></div>
-    <div class="detail-row"><span class="detail-key">種類</span><span class="detail-val">${p.category}</span></div>
-    <div class="detail-row"><span class="detail-key">正/陰牌</span><span class="detail-val">${p.type}</span></div>
-    <div class="detail-row"><span class="detail-key">師傅/寺廟</span><span class="detail-val">${p.master}</span></div>
-    <div class="detail-row"><span class="detail-key">製作年分</span><span class="detail-val">${p.year}年</span></div>
-    <div class="detail-row"><span class="detail-key">材料</span><span class="detail-val">${p.material}</span></div>
-    <div class="detail-row"><span class="detail-key">特色</span><span class="detail-val">${p.feature}</span></div>
-    <div class="detail-row"><span class="detail-key">功效</span><span class="detail-val">${p.effects.join('、')}</span></div>
-    <div class="detail-row"><span class="detail-key">庫存</span><span class="detail-val ${p.stock<=1?'stock-low':''}">${p.stock} 件</span></div>
-    <div class="detail-row"><span class="detail-key">售價</span><span class="detail-val" style="font-weight:500;font-size:15px;">$${p.price.toLocaleString()}</span></div>
-    <button class="btn btn-secondary" style="width:100%;margin-top:10px;" id="detail-cp-intro" onclick="copyIntroText('${id}', this)">📋 複製介紹文字</button>
-    <div style="margin-top:16px;">
-      <label class="form-label">調整庫存</label>
-      <div style="display:flex;gap:8px;">
-        <input class="form-input" type="number" id="stock-adj" value="${p.stock}" style="flex:1;">
-        <button class="btn btn-primary btn-sm" style="width:auto;margin-top:0;" onclick="updateStock('${id}')">更新</button>
-      </div>
+    ${detailRow(p,'code',escH(p.code))}
+    ${detailRow(p,'category',escH(p.category))}
+    ${detailRow(p,'type',escH(p.type))}
+    ${detailRow(p,'master',escH(p.master))}
+    ${detailRow(p,'year',p.year?escH(p.year)+'年':'')}
+    ${detailRow(p,'material',escH(p.material))}
+    ${detailRow(p,'feature',escH(p.feature))}
+    ${detailRow(p,'effects',escH((p.effects||[]).join('、')))}
+    <div class="detail-row" style="align-items:center;">
+      <span class="detail-key">庫存</span>
+      <span class="detail-val" style="display:flex;align-items:center;gap:8px;">
+        <button class="stk-btn" onclick="adjStock('${id}',-1)">－</button>
+        <input id="stk-val" class="stk-input" type="number" inputmode="numeric" min="0" value="${p.stock}" style="${p.stock<=1?'color:#c0392b;':''}" onfocus="this.select()" onchange="setStock('${id}',this.value)">
+        <button class="stk-btn" onclick="adjStock('${id}',1)">＋</button>
+        <span style="font-size:12px;color:var(--text3);">件</span>
+      </span>
     </div>
-    <div style="display:flex;gap:8px;margin-top:14px;">
-      <button class="btn btn-secondary" style="flex:1;margin-top:0;" onclick="openEditProduct('${id}')">✏️ 編輯商品</button>
+    ${detailRow(p,'price','$'+(p.price||0).toLocaleString())}
+    <button class="btn btn-secondary" style="width:100%;margin-top:10px;" id="detail-cp-intro" onclick="copyIntroText('${id}', this)">📋 複製介紹文字</button>
+    <div style="display:flex;gap:8px;margin-top:10px;">
+      <button class="btn btn-secondary" style="flex:1;margin-top:0;" onclick="openEditProduct('${id}')">✏️ 編輯照片/完整編輯</button>
       <button class="btn" style="flex:1;margin-top:0;background:#fdece8;color:#c0392b;" onclick="confirmDeleteProduct('${id}')">🗑 刪除</button>
     </div>
-    <button class="btn btn-secondary" style="width:100%;margin-top:10px;" onclick="_closeModal()">關閉</button>
-  `);
+    <button class="btn btn-secondary" style="width:100%;margin-top:10px;" onclick="_closeModal()">關閉</button>`;
+}
+window.openProductDetail=function(id){
+  const p=getProductById(id); if(!p)return;
+  openModal(productDetailHTML(p));
+}
+function refreshDetail(id){
+  const p = getProductById(id); if(!p) return;
+  const sheet = document.getElementById('modal-sheet'); const top = sheet ? sheet.scrollTop : 0;
+  document.getElementById('modal-content').innerHTML = productDetailHTML(p);
+  if(sheet) sheet.scrollTop = top;
+}
+window.refreshDetail = refreshDetail;
+window.startDetailEdit=function(id,k){
+  const p = getProductById(id); if(!p) return;
+  const row = document.getElementById('dr-'+k), val = document.getElementById('dv-'+k);
+  if(!row || !val) return;
+  row.onclick = null; row.classList.remove('dr-edit');
+  const pen = row.querySelector('.dr-pen'); if(pen) pen.style.display = 'none';
+  const ok = `<button class="btn btn-gold btn-sm" style="width:auto;margin:0;padding:6px 14px;" onclick="event.stopPropagation();commitDetailEdit('${id}','${k}')">✓ 儲存</button><button class="btn btn-secondary btn-sm" style="width:auto;margin:0;padding:6px 14px;" onclick="event.stopPropagation();refreshDetail('${id}')">取消</button>`;
+  const enter = `onkeydown="if(event.key==='Enter'){event.preventDefault();commitDetailEdit('${id}','${k}');}" onclick="event.stopPropagation()"`;
+  let html = '';
+  if(k==='category' || k==='master' || k==='type'){
+    const opts = k==='category' ? [...new Set([p.category, ...getList('cats')].filter(Boolean))]
+               : k==='master' ? [...new Set([p.master, ...getList('masters')].filter(Boolean))]
+               : ['正牌','陰牌'];
+    html = `<select class="form-select" id="de-${k}" onclick="event.stopPropagation()" onchange="commitDetailEdit('${id}','${k}')">${k==='master'?'<option value="">（未設定）</option>':''}${opts.map(o=>`<option value="${escA(o)}" ${o===p[k]?'selected':''}>${escH(o)}</option>`).join('')}</select>`;
+  } else if(k==='effects'){
+    const cur = p.effects || [];
+    html = `<div style="width:100%;" onclick="event.stopPropagation()"><div class="chip-row" id="de-effects">${[...new Set([...getList('effects'), ...cur])].map(e=>`<span class="chip${cur.includes(e)?' on':''}" onclick="this.classList.toggle('on')">${escH(e)}</span>`).join('')}</div><div style="display:flex;gap:6px;margin-top:8px;">${ok}</div></div>`;
+  } else if(k==='feature'){
+    html = `<div style="width:100%;"><textarea class="form-textarea" id="de-feature" rows="3" onclick="event.stopPropagation()">${escH(p.feature||'')}</textarea><div style="display:flex;gap:6px;margin-top:6px;">${ok}</div></div>`;
+  } else {
+    const num = (k==='price');
+    html = `<div style="width:100%;display:flex;gap:6px;align-items:center;flex-wrap:wrap;"><input class="form-input" id="de-${k}" ${num?'type="number" inputmode="numeric"':''} value="${escA(p[k]==null?'':p[k])}" style="flex:1;min-width:120px;${k==='name'?'text-align:center;':''}" ${enter}>${ok}</div>`;
+  }
+  val.innerHTML = html;
+  val.style.width = '100%';
+  const f = document.getElementById('de-'+k); if(f && f.focus && k!=='effects'){ f.focus(); if(f.select && f.tagName==='INPUT') f.select(); }
+}
+window.commitDetailEdit=async function(id,k){
+  const products = getProducts(); const i = products.findIndex(p=>p.id===id); if(i<0) return;
+  const p = { ...products[i] };
+  if(k==='effects'){
+    p.effects = [...document.querySelectorAll('#de-effects .chip.on')].map(c=>c.textContent);
+  } else {
+    const v = (document.getElementById('de-'+k)?.value || '').trim();
+    if(k==='name'){ if(!v){ toast('⚠ 名稱不能空白'); return; } p.name = v; }
+    else if(k==='code'){
+      if(!v){ toast('⚠ 編號不能空白'); return; }
+      if(products.some((x,j)=>j!==i && String(x.code||'').toUpperCase()===v.toUpperCase())){ toast('⚠ 這個編號已經有其他商品在用'); return; }
+      p.code = v;
+    }
+    else if(k==='price'){ const n = parseInt(v); if(isNaN(n) || n<0){ toast('⚠ 請輸入有效售價'); return; } p.price = n; }
+    else p[k] = v;
+  }
+  products[i] = p; save('products', products);
+  refreshDetail(id); refreshProductListQuiet();
+  await pushProductToCloud(p);
+  await logActivity('編輯商品', `${p.name}（${p.code}）· ${DETAIL_LABELS[k]||k}`);
+  toast('✅ 已儲存'+(CLOUD_ENABLED?'（已同步雲端）':''));
 }
 
-window.updateStock=async function(id){
-  const val=parseInt(document.getElementById('stock-adj')?.value);
-  if(isNaN(val)||val<0){ toast('⚠ 請輸入有效數量'); return; }
-  const products=getProducts(); const i=products.findIndex(p=>p.id===id);
-  if(i>=0){ products[i].stock=val; save('products',products); await pushProductToCloud(products[i]); await logActivity('調整庫存', `${products[i].name} → ${val}`); }
-  _closeModal(); toast('✅ 庫存已更新'+(CLOUD_ENABLED?'（已同步雲端）':'')); renderPage('products');
+// ---- 庫存 ＋／－（點一下立即存檔；連點會合併成一次雲端寫入）----
+const _stockTimers = {}, _stockOrig = {};
+function applyStock(id,n){
+  const products = getProducts(); const i = products.findIndex(p=>p.id===id); if(i<0) return;
+  if(_stockOrig[id] === undefined) _stockOrig[id] = products[i].stock;
+  products[i].stock = n; save('products', products);
+  const inp = document.getElementById('stk-val');
+  if(inp){ inp.value = n; inp.style.color = n<=1 ? '#c0392b' : ''; }
+  clearTimeout(_stockTimers[id]);
+  _stockTimers[id] = setTimeout(async ()=>{
+    const p = getProductById(id); if(!p) return;
+    const from = _stockOrig[id]; delete _stockOrig[id];
+    refreshProductListQuiet();
+    await pushProductToCloud(p);
+    await logActivity('調整庫存', `${p.name} ${from} → ${p.stock}`);
+    toast('✅ 庫存已更新'+(CLOUD_ENABLED?'（已同步雲端）':''));
+  }, 600);
+}
+window.adjStock=function(id,d){ const p = getProductById(id); if(!p) return; applyStock(id, Math.max(0, (parseInt(p.stock)||0) + d)); }
+window.setStock=function(id,v){
+  const n = parseInt(v);
+  if(isNaN(n) || n<0){ toast('⚠ 請輸入有效數量'); const p = getProductById(id); const inp = document.getElementById('stk-val'); if(p && inp) inp.value = p.stock; return; }
+  applyStock(id, n);
 }
 
+// ---- 新增商品 ----
 window.openNewProduct=function(){
-  const masters=load('masters')||MASTERS;
-  const cats=load('cats')||CATS;
-  const effs=load('effects')||EFFECTS;
-  let selCats=[], selEffs=[], selType='正牌', selMaster='';
-  _photoSlots = [];
-  
+  const masters=getList('masters'), cats=getList('cats'), effs=getList('effects');
+  _photoSlots = []; window._npEffTouched = false; window._npCodeManual = false;
   openModal(`
     <div class="modal-title">新增商品</div>
     <div class="form-block"><label class="form-label">商品名稱 *</label><input class="form-input" id="np-name" placeholder="商品名稱"></div>
-    <div class="form-block"><label class="form-label">售價 *</label><input class="form-input" id="np-price" type="number" placeholder="0"></div>
-    <div class="form-block"><label class="form-label">庫存數量</label><input class="form-input" id="np-stock" type="number" value="1"></div>
     <div class="form-block">
       <label class="form-label">種類 *</label>
-      <select class="form-select" id="np-cat">
-        ${cats.map(c=>`<option>${c}</option>`).join('')}
+      <select class="form-select" id="np-cat" onchange="onNpCatChange(this)">
+        <option value="">選擇種類...</option>
+        ${cats.map(c=>`<option value="${escA(c)}">${escH(c)}</option>`).join('')}
         <option value="__new__">+ 新增種類</option>
       </select>
     </div>
+    <div class="form-block"><label class="form-label">商品編號（選好種類後自動產生流水號，可手動修改）</label><input class="form-input" id="np-code" placeholder="請先選擇種類" oninput="window._npCodeManual=true"></div>
+    <div class="form-block"><label class="form-label">售價 *</label><input class="form-input" id="np-price" type="number" inputmode="numeric" placeholder="0"></div>
+    <div class="form-block"><label class="form-label">庫存數量</label><input class="form-input" id="np-stock" type="number" inputmode="numeric" value="1"></div>
     <div class="form-block">
       <label class="form-label">正牌 / 陰牌</label>
       <div class="switch">
@@ -1880,37 +2243,48 @@ window.openNewProduct=function(){
     </div>
     <div class="form-block">
       <label class="form-label">師傅/寺廟</label>
-      <select class="form-select" id="np-master">
+      <select class="form-select" id="np-master" onchange="if(this.value==='__new__') addOptionViaPrompt('masters',this)">
         <option value="">選擇師傅...</option>
-        ${masters.map(m=>`<option>${m}</option>`).join('')}
+        ${masters.map(m=>`<option value="${escA(m)}">${escH(m)}</option>`).join('')}
         <option value="__new__">+ 新增師傅</option>
       </select>
     </div>
-    <div class="form-block"><label class="form-label">製作年分</label><input class="form-input" id="np-year" type="number" placeholder="${new Date().getFullYear()}"></div>
+    <div class="form-block"><label class="form-label">製作年分</label><input class="form-input" id="np-year" type="number" inputmode="numeric" placeholder="${new Date().getFullYear()}"></div>
     <div class="form-block"><label class="form-label">材料</label><input class="form-input" id="np-material" placeholder="銅、金箔..."></div>
     <div class="form-block"><label class="form-label">特色描述</label><textarea class="form-textarea" id="np-feature" rows="2" placeholder="特色說明..."></textarea></div>
     <div class="form-block">
-      <label class="form-label">功效（可複選）</label>
-      <div class="chip-row" id="np-effects">${effs.map(e=>`<span class="chip" onclick="this.classList.toggle('on')">${e}</span>`).join('')}</div>
+      <label class="form-label">功效（可複選；選種類後會自動帶入該種類的預設功效）</label>
+      <div class="chip-row" id="np-effects">${effs.map(e=>`<span class="chip" onclick="this.classList.toggle('on');window._npEffTouched=true">${escH(e)}</span>`).join('')}</div>
     </div>
     <div class="form-block">
-      <label class="form-label">商品照片（最多3張）</label>
+      <label class="form-label">商品照片（最多3張，正面放第一格、背面放第二格）</label>
       <div id="photo-slots-container">${photoSlotsHTML()}</div>
     </div>
     <button class="btn btn-gold" onclick="saveNewProduct()">確認建檔</button>
     <div style="height:20px;"></div>
   `);
 }
+window.onNpCatChange=function(sel){
+  if(sel.value === '__new__'){ addOptionViaPrompt('cats', sel); return; }
+  const cat = sel.value; if(!cat) return;
+  if(!window._npCodeManual){ const c = document.getElementById('np-code'); if(c) c.value = nextProductCode(cat); }
+  if(!window._npEffTouched){
+    const defs = CONFIG.catEffects[cat] || [];
+    document.querySelectorAll('#np-effects .chip').forEach(c=>c.classList.toggle('on', defs.includes(c.textContent)));
+  }
+}
 
-// ---- 商品照片（最多3張），新增/編輯商品共用 ----
+// ---- 商品照片（最多3張），新增/編輯商品共用：自動壓縮後上傳到 Supabase Storage ----
 let _photoSlots = [];
 let _photoSlotTarget = 0;
 function photoSlotsHTML(){
   let html = '<div style="display:flex;gap:10px;flex-wrap:wrap;">';
   for(let i=0;i<3;i++){
-    if(_photoSlots[i]){
+    if(_photoSlots[i] === '__uploading__'){
+      html += `<div><div class="photo-uploading">上傳中…</div><div style="font-size:10px;color:var(--text3);text-align:center;margin-top:2px;">${photoLabel(i)}</div></div>`;
+    } else if(_photoSlots[i]){
       html += `<div style="position:relative;">
-        <img src="${_photoSlots[i]}" class="photo-preview">
+        <img src="${escA(_photoSlots[i])}" class="photo-preview">
         <button onclick="removePhotoSlot(${i})" style="position:absolute;top:-6px;right:-6px;width:22px;height:22px;border-radius:50%;background:#c0392b;color:#fff;border:none;font-size:12px;cursor:pointer;">✕</button>
         <div style="font-size:10px;color:var(--text3);text-align:center;margin-top:2px;">${photoLabel(i)}</div>
       </div>`;
@@ -1922,11 +2296,41 @@ function photoSlotsHTML(){
   return html;
 }
 window.triggerPhotoUpload=function(i){ _photoSlotTarget=i; document.getElementById('photo-slot-input').click(); }
-window.onPhotoSlotFile=function(input){
-  if(!input.files||!input.files[0]) return;
-  const r=new FileReader();
-  r.onload=function(e){ _photoSlots[_photoSlotTarget]=e.target.result; refreshPhotoSlotsUI(); };
-  r.readAsDataURL(input.files[0]);
+function compressImage(file, maxSide, quality){
+  return new Promise((resolve,reject)=>{
+    const url = URL.createObjectURL(file); const img = new Image();
+    img.onload = ()=>{
+      let w = img.naturalWidth, h = img.naturalHeight;
+      const sc = Math.min(1, maxSide/Math.max(w,h)); w = Math.round(w*sc); h = Math.round(h*sc);
+      const c = document.createElement('canvas'); c.width = w; c.height = h;
+      const ctx = c.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0,0,w,h); ctx.drawImage(img,0,0,w,h);
+      URL.revokeObjectURL(url);
+      c.toBlob(b=> b ? resolve(b) : reject(new Error('壓縮失敗')), 'image/jpeg', quality);
+    };
+    img.onerror = ()=>{ URL.revokeObjectURL(url); reject(new Error('讀取圖片失敗')); };
+    img.src = url;
+  });
+}
+function blobToDataURL(b){ return new Promise(res=>{ const r = new FileReader(); r.onload = ()=>res(r.result); r.readAsDataURL(b); }); }
+async function uploadProductPhoto(file){
+  const blob = await compressImage(file, 1000, 0.82);
+  if(CLOUD_ENABLED){
+    try{
+      const path = `${TENANT_ID}/${Date.now()}-${Math.random().toString(36).slice(2,8)}.jpg`;
+      const { error } = await sb.storage.from('product-images').upload(path, blob, { contentType:'image/jpeg', cacheControl:'31536000' });
+      if(error) throw error;
+      return sb.storage.from('product-images').getPublicUrl(path).data.publicUrl;
+    }catch(e){ console.warn('照片上傳 Storage 失敗，改存壓縮後的內嵌圖片', e); }
+  }
+  return await blobToDataURL(blob);
+}
+window.onPhotoSlotFile=async function(input){
+  const f = input.files && input.files[0]; if(!f) return;
+  const slot = _photoSlotTarget; input.value = '';
+  _photoSlots[slot] = '__uploading__'; refreshPhotoSlotsUI();
+  try{ _photoSlots[slot] = await uploadProductPhoto(f); }
+  catch(e){ console.error(e); toast('⚠ 照片處理失敗，請換一張再試'); _photoSlots[slot] = ''; }
+  refreshPhotoSlotsUI();
 }
 window.removePhotoSlot=function(i){ _photoSlots.splice(i,1); refreshPhotoSlotsUI(); }
 function refreshPhotoSlotsUI(){
@@ -1999,6 +2403,7 @@ window.saveEditProduct=async function(id){
   const material=document.getElementById('ep-material')?.value||'';
   const feature=document.getElementById('ep-feature')?.value||'';
   const effects=[...document.querySelectorAll('#ep-effects .chip.on')].map(c=>c.textContent);
+  if(_photoSlots.includes('__uploading__')){ toast('⏳ 照片上傳中，請稍候再儲存'); return; }
   const images=_photoSlots.filter(Boolean);
   const image=images[0]||'';
 
@@ -2049,22 +2454,20 @@ window.saveNewProduct=async function(){
   const material=document.getElementById('np-material')?.value||'';
   const feature=document.getElementById('np-feature')?.value||'';
   const effects=[...document.querySelectorAll('#np-effects .chip.on')].map(c=>c.textContent);
+  if(_photoSlots.includes('__uploading__')){ toast('⏳ 照片上傳中，請稍候再儲存'); return; }
   const images=_photoSlots.filter(Boolean);
   const image=images[0]||'';
   
   const catCode=cat.substring(0,2).toUpperCase();
-  const ym=year.slice(-2)+String(new Date().getMonth()+1).padStart(2,'0');
   const products=getProducts();
-  const sameCode=products.filter(p=>p.code.startsWith(catCode)).length+1;
-  const code=`${catCode}${year}-${String(sameCode).padStart(3,'0')}`;
-  
+  const code=((document.getElementById('np-code')?.value||'').trim().toUpperCase()) || nextProductCode(cat);
+  if(products.some(p=>String(p.code||'').toUpperCase()===code)){ toast('⚠ 編號 '+code+' 已經有商品在用，請修改編號'); return; }
+
   const newProduct = { id:catCode+Date.now(), code, category:cat, name, type, master, year, stock, price, effects, material, feature, image, images };
   products.unshift(newProduct);
   save('products',products);
   await pushProductToCloud(newProduct);
   await logActivity('新增商品', `${newProduct.name}（${code}）`);
-
-  if(master==='__new__'){ const m=load('masters')||MASTERS; if(!m.includes(master)) { m.push(master); save('masters',m); } }
 
   _closeModal(); toast('✅ 商品建檔成功！'+(CLOUD_ENABLED?'（已同步雲端）':'')); renderPage('products');
 }
@@ -2661,11 +3064,19 @@ function renderSettings(){
       </label>
     </div>`).join('');
   return `
-    <div style="text-align:center;font-size:11px;color:var(--text3);margin-bottom:10px;">佛牌殿管理系統 ${APP_VERSION}（${APP_BUILD_DATE}）</div>
+    <div style="text-align:center;font-size:11px;color:var(--text3);margin-bottom:10px;cursor:pointer;" onclick="showChangelog()">佛牌殿管理系統 ${APP_VERSION}（${APP_BUILD_DATE}）· 看更新紀錄</div>
     <div style="background:var(--white);border-radius:var(--radius);padding:16px;margin-bottom:14px;border:1px solid rgba(26,10,46,0.06);">
       <div class="sec" style="margin:0 0 4px;">身份權限</div>
       <div style="font-size:12px;color:var(--text3);margin-bottom:10px;">管理員固定擁有所有權限，以下設定套用在「客服/門市人員」身份，會同步到所有裝置</div>
       ${rows}
+    </div>
+
+    <div style="background:var(--white);border-radius:var(--radius);padding:16px;margin-bottom:14px;border:1px solid rgba(26,10,46,0.06);">
+      <div class="sec" style="margin:0 0 4px;">分類設定</div>
+      <div style="font-size:12px;color:var(--text3);margin-bottom:10px;line-height:1.6;">調整商品種類、製作師傅、功效選項。有錯字可以直接改名，已建檔的商品會一起更新；種類還能設定編號前綴與預設功效。</div>
+      ${[['cats','商品種類'],['masters','製作師傅'],['effects','功效需求']].map(([t,l])=>`
+        <button class="btn btn-secondary" style="width:100%;display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;" onclick="openManageListModal('${t}')"><span>${l}</span><span style="color:var(--text3);font-size:12px;">${getList(t).length} 項 ›</span></button>`).join('')}
+      <div style="font-size:11px;margin-top:2px;color:${_configSyncOk===false?'#c0392b':'var(--text3)'};">${!CLOUD_ENABLED?'目前僅存在這支裝置':_configSyncOk===false?'⚠ 分類設定尚未同步到雲端（請先在 Supabase 執行 v1.2.0 的 SQL），目前只存在這支裝置':'☁️ 分類設定會同步到所有裝置'}</div>
     </div>
 
     <div style="background:var(--white);border-radius:var(--radius);padding:16px;margin-bottom:14px;border:1px solid rgba(26,10,46,0.06);">
@@ -2692,6 +3103,13 @@ function renderSettings(){
       ⚠ 「開放/關閉」的權限開關是介面層級顯示控制；帳號本身已經是真正的 Supabase Auth 登入驗證，資料庫層級也已限制只有登入的帳號能讀寫本租戶資料。
     </div>
     <div style="height:30px;"></div>`;
+}
+window.showChangelog=function(){
+  openModal(`<div class="modal-title">更新紀錄</div>
+    <div style="max-height:60vh;overflow-y:auto;">${APP_CHANGELOG.map(([v,d,items])=>`
+      <div style="margin-bottom:14px;"><div style="font-weight:600;font-size:14px;">${v} <span style="font-weight:400;color:var(--text3);font-size:12px;">${d}</span></div>
+      <ul style="margin:6px 0 0 18px;font-size:13px;line-height:1.7;color:var(--text2);">${items.map(x=>`<li>${x}</li>`).join('')}</ul></div>`).join('')}</div>
+    <button class="btn btn-secondary" style="width:100%;margin-top:10px;" onclick="_closeModal()">關閉</button>`);
 }
 window.togglePermission=async function(key){
   if(!PERMISSIONS.staff) PERMISSIONS.staff={...DEFAULT_PERMISSIONS.staff};
