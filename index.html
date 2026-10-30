@@ -346,9 +346,10 @@ const SUPABASE_URL = 'https://roxwskdpnsctoaflcomt.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJveHdza2RwbnNjdG9hZmxjb210Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg0Mjk3MDAsImV4cCI6MjEwNDAwNTcwMH0.CflNz8IOx85zo-apNjJkUBISqXYGVpu5-LJ5DDBPyxw';
 const TENANT_ID = 'dbf9fcd3-110a-4dde-8ef9-40c2f89967a9';
 // ===== 版本號：每次更新請遞增，登入頁與設定頁底部都會顯示 =====
-const APP_VERSION = 'v1.4.0';
+const APP_VERSION = 'v1.5.0';
 const APP_BUILD_DATE = '2026-10-30';
 const APP_CHANGELOG = [
+  ['v1.5.0','2026-10-30',['客戶資料改成「一人一張卡」：社群暱稱、真實姓名、LINE 名稱、手機、Email，並一次列出 711／宅配／自取等所有收件方式（標示常用）','客戶可新增、編輯、刪除多種收件方式，可手動設為常用；每種方式可單獨一鍵複製收件資料','建立訂單選到客戶時，自動帶入常用收件方式，客戶改選別種時一鍵切換；下單後自動記錄新的收件方式並統計常用','搜尋客戶可用暱稱、真實姓名、LINE 名稱、手機或門市／地址','匯入 2026.01～10 整理後的訂單（有日期用實際日期，沒日期當月 1 號）與 2025～2026 客戶資料']],
   ['v1.4.0','2026-10-30',['彈窗只有從最上方（把手附近）往下拉才會關閉，內容區上下滑動不會誤關','預算快速設定條改為每格 5,000 元，範圍 0～10 萬，拉到最右＝10 萬以上（欄位仍可手動輸入到 30 萬以上）','製作師傅依商品數量由多到少排序，名字含「廟」的用藍字和師傅區分，「其他」固定在最底']],
   ['v1.3.0','2026-10-30',['「權限設定」分頁改名為「設定」，頁內依常用程度排序：分類設定、帳號管理、身份權限、圖片搬移、操作紀錄','商品篩選的正陰牌／種類／師傅／功效改成下拉選單，全部可複選，可搜尋、顯示各選項商品數','預算範圍標題右側新增「重設預算」小按鈕','預算上限提高到 30 萬（滑桿前段細調到 6 萬，後段快速拉到 30 萬）','篩選條件一改變，下方結果立即更新']],
   ['v1.2.0','2026-10-30',['商品庫庫存加入 ＋／－ 鍵，點一下立即存檔並同步','商品詳情每個欄位點一下就能直接編輯，名稱置中','依種類自動帶入預設功效（設定頁可調整每個種類的預設功效）','商品編號依種類自動產生流水號（沿用現有編號前綴）','商品列表往左滑可刪除','照片自動壓縮、延遲載入，載入失敗會自動重試','設定頁新增「分類設定」：種類／師傅／功效可改名（已建檔商品一併更新）、刪除、新增']],
@@ -446,8 +447,13 @@ async function pushOrderToCloud(o){
 }
 
 // ---- 客戶 ----
-function rowToCustomer(r){ return { id:r.id, name:r.name, phone:r.phone, shipping:r.shipping, shippingDetail:r.shipping_detail }; }
-function customerToRow(c){ return { id:c.id, tenant_id:TENANT_ID, name:c.name, phone:c.phone, shipping:c.shipping, shipping_detail:c.shippingDetail }; }
+function rowToCustomer(r){ return { id:r.id, name:r.name, phone:r.phone||'', shipping:r.shipping||'', shippingDetail:r.shipping_detail||'', realName:r.real_name||'', lineName:r.line_name||'', email:r.email||'', methods:Array.isArray(r.methods)?r.methods:[] }; }
+function customerToRow(c, basic){
+  const row={ id:c.id, tenant_id:TENANT_ID, name:c.name, phone:c.phone||'', shipping:c.shipping||'', shipping_detail:c.shippingDetail||'' };
+  if(!basic) Object.assign(row,{ real_name:c.realName||'', line_name:c.lineName||'', email:c.email||'', methods:c.methods||[] });
+  return row;
+}
+let _customerColsMissing = false;   // 雲端還沒執行 v1.5.0 的 SQL 時，退回舊欄位寫入，不會壞資料
 
 async function syncCustomersFromCloud(){
   if(!CLOUD_ENABLED) return false;
@@ -460,8 +466,15 @@ async function syncCustomersFromCloud(){
 }
 async function pushCustomerToCloud(c){
   if(!CLOUD_ENABLED) return;
-  try{ const { error } = await sb.from('customers').upsert(customerToRow(c)); if(error) throw error; }
-  catch(e){ console.error('客戶寫入雲端失敗', e); toast('⚠ 客戶雲端同步失敗，請檢查網路'); }
+  try{
+    let { error } = await sb.from('customers').upsert(customerToRow(c, _customerColsMissing));
+    if(error && !_customerColsMissing && /real_name|line_name|methods|email|column/i.test(error.message||'')){
+      _customerColsMissing = true;
+      toast('⚠ 雲端客戶表尚未升級，真實姓名／多種收件方式只存在本機。請執行 customers_import_v2.sql');
+      ({ error } = await sb.from('customers').upsert(customerToRow(c, true)));
+    }
+    if(error) throw error;
+  }catch(e){ console.error('客戶寫入雲端失敗', e); toast('⚠ 客戶雲端同步失敗，請檢查網路'); }
 }
 
 // 一次把「這支裝置」本機現有的商品/訂單/客戶全部上傳到雲端（upsert，不會重複）
@@ -1361,18 +1374,22 @@ window.onShipChange=function(val){
   refreshOrderSummary();
 }
 
+function customerSummaryLine(c){
+  const ms=customerMethods(c);
+  return `${c.realName&&c.realName!==c.name?escH(c.realName)+' · ':''}${escH(c.phone)||'未留手機'} · ${ms.length?ms.map(m=>shipLabel(m.type)).filter((x,i,a)=>a.indexOf(x)===i).join('／'):'未設定收件方式'}`;
+}
 window.searchCustomer=function(v){
   const sugg=document.getElementById('customer-suggestions'); if(!sugg)return;
   if(!v){ sugg.innerHTML=''; return; }
-  const matches=getCustomers().filter(c=>c.name.includes(v)||c.phone.includes(v));
+  const matches=getCustomers().filter(c=>customerMatches(c,v)).slice(0,30);
   if(!matches.length){ sugg.innerHTML=''; return; }
-  sugg.innerHTML=`<div style="background:var(--white);border-radius:8px;border:1px solid rgba(26,10,46,0.1);margin-top:4px;">` + matches.map(c=>`<div style="padding:10px 14px;font-size:13px;cursor:pointer;border-bottom:1px solid rgba(26,10,46,0.06);" onclick="fillCustomer('${c.id}')">${c.name} · ${c.phone}</div>`).join('') + `</div>`;
+  sugg.innerHTML=`<div style="background:var(--white);border-radius:8px;border:1px solid rgba(26,10,46,0.1);margin-top:4px;max-height:260px;overflow-y:auto;">` + matches.map(c=>`<div style="padding:10px 14px;font-size:13px;cursor:pointer;border-bottom:1px solid rgba(26,10,46,0.06);" onclick="fillCustomer('${c.id}')">${escH(c.name)}<div style="font-size:11px;color:var(--text3);">${customerSummaryLine(c)}</div></div>`).join('') + `</div>`;
 }
 
 window.autofillByPhone=function(phone){
   phone=(phone||'').trim();
   if(!phone) return;
-  const matches=getCustomers().filter(c=>c.phone===phone);
+  const matches=getCustomers().filter(c=>c.phone===phone || customerMethods(c).some(m=>m.phone===phone));
   if(!matches.length) return;
   if(matches.length===1){
     const nameField=document.getElementById('no-customer');
@@ -1382,41 +1399,52 @@ window.autofillByPhone=function(phone){
     toast(`ℹ 這支電話有 ${matches.length} 筆收件資料，請按「▼ 選擇」挑選`);
   }
 }
-window.fillCustomer=function(id){
+window.fillCustomer=function(id, idx){
   const c=getCustomers().find(x=>x.id===id); if(!c)return;
+  const ms=customerMethods(c);
+  const k = (idx!=null && ms[idx]) ? idx : Math.max(0, ms.findIndex((m,i)=>isPrefMethod(c,m,i)));
+  const m = ms[k] || {type:'',detail:'',recipient:'',phone:''};
   document.getElementById('no-customer').value=c.name;
-  document.getElementById('no-phone').value=c.phone;
-  document.getElementById('no-shipping').value=c.shipping||'';
-  onShipChange(c.shipping||'');
-  if(document.getElementById('no-ship-detail')) document.getElementById('no-ship-detail').value=c.shippingDetail||'';
-  document.getElementById('customer-suggestions').innerHTML='';
-  _closeModal();
+  const rec=document.getElementById('no-recipient'); if(rec){ const r=m.recipient||c.realName||''; rec.value = (r && r!==c.name) ? r : ''; }
+  document.getElementById('no-phone').value=m.phone||c.phone||'';
+  document.getElementById('no-shipping').value=m.type||'';
+  onShipChange(m.type||'');
+  if(document.getElementById('no-ship-detail')) document.getElementById('no-ship-detail').value=m.detail||'';
+  const sugg=document.getElementById('customer-suggestions');
+  if(sugg){
+    // 客戶有多種收件方式時，列出讓你一鍵切換（客戶有時會自由選擇）
+    sugg.innerHTML = ms.length>1 ? `<div style="background:var(--surface);border-radius:8px;padding:8px 10px;margin-top:6px;">
+      <div style="font-size:11px;color:var(--text3);margin-bottom:6px;">${escH(c.name)} 有 ${ms.length} 種收件方式，點選切換：</div>
+      ${ms.map((x,i)=>`<div onclick="fillCustomer('${c.id}', ${i})" style="font-size:12px;padding:7px 8px;margin-bottom:4px;border-radius:6px;cursor:pointer;background:${i===k?'var(--gold)':'var(--white)'};word-break:break-all;">${methodLine(x)}${isPrefMethod(c,x,i)?' ★':''}</div>`).join('')}
+    </div>` : '';
+  }
+  if(document.getElementById('modal')?.classList.contains('open')) _closeModal();
 }
 
 window.openCustomerQuickPick=function(){ renderCustomerQuickPick(''); }
 function renderCustomerQuickPick(q){
   const customers=getCustomers()
-    .filter(c=> !q || c.name.includes(q) || c.phone.includes(q))
+    .filter(c=> customerMatches(c,q))
     .sort((a,b)=>a.name.localeCompare(b.name,'zh-Hant'));
-  const listHTML = customers.map(c=>`
+  const listHTML = customers.slice(0,80).map(c=>`
     <div style="padding:10px 0;border-bottom:1px solid rgba(26,10,46,0.06);cursor:pointer;" onclick="fillCustomer('${c.id}')">
-      <div style="font-size:14px;">${c.name}</div>
-      <div style="font-size:12px;color:var(--text3);">${c.phone||'未留電話'} · ${c.shipping||'未設定寄送方式'}${c.shippingDetail?'：'+c.shippingDetail:''}</div>
+      <div style="font-size:14px;">${escH(c.name)}</div>
+      <div style="font-size:12px;color:var(--text3);">${customerSummaryLine(c)}</div>
     </div>`).join('') || '<div style="text-align:center;color:var(--text3);font-size:13px;padding:20px;">無符合客戶</div>';
   openModal(`
     <div class="modal-title">選擇客戶</div>
-    <div class="search-bar" style="margin-bottom:10px;"><span class="search-icon">🔍</span><input type="text" id="cqp-search" placeholder="搜尋姓名或電話..." value="${q}" oninput="filterCustomerQuickPick(this.value)" autofocus></div>
+    <div class="search-bar" style="margin-bottom:10px;"><span class="search-icon">🔍</span><input type="text" id="cqp-search" placeholder="搜尋暱稱、真實姓名、手機、門市..." value="${escA(q)}" oninput="filterCustomerQuickPick(this.value)" autofocus></div>
     <div id="cqp-list" style="max-height:55vh;overflow-y:auto;">${listHTML}</div>
   `);
 }
 window.filterCustomerQuickPick=function(v){
   const customers=getCustomers()
-    .filter(c=> !v || c.name.includes(v) || c.phone.includes(v))
+    .filter(c=> customerMatches(c,v))
     .sort((a,b)=>a.name.localeCompare(b.name,'zh-Hant'));
-  document.getElementById('cqp-list').innerHTML = customers.map(c=>`
+  document.getElementById('cqp-list').innerHTML = customers.slice(0,80).map(c=>`
     <div style="padding:10px 0;border-bottom:1px solid rgba(26,10,46,0.06);cursor:pointer;" onclick="fillCustomer('${c.id}')">
-      <div style="font-size:14px;">${c.name}</div>
-      <div style="font-size:12px;color:var(--text3);">${c.phone||'未留電話'} · ${c.shipping||'未設定寄送方式'}${c.shippingDetail?'：'+c.shippingDetail:''}</div>
+      <div style="font-size:14px;">${escH(c.name)}</div>
+      <div style="font-size:12px;color:var(--text3);">${customerSummaryLine(c)}</div>
     </div>`).join('') || '<div style="text-align:center;color:var(--text3);font-size:13px;padding:20px;">無符合客戶</div>';
 }
 
@@ -1563,11 +1591,31 @@ window.finalizeSubmitOrder=async function(forceFreeOverride){
   // Save/update customer：同一個人如果換了新的收件方式（地址/門市），視為新增一筆客戶收件資料，
   // 這樣之後在「訂購人姓名」搜尋時，同一人的不同收件地址都能個別被選到、複製，不會互相覆蓋掉。
   const customers=getCustomers();
-  const shipDetail=document.getElementById('no-ship-detail')?.value||'';
-  const exact=customers.find(c=>c.phone===phone && c.name===customer && c.shipping===shipping && (c.shippingDetail||'')===shipDetail);
-  let savedCustomer;
-  if(exact){ savedCustomer=exact; }
-  else{ savedCustomer={id:'C'+Date.now(),name:customer,phone,shipping,shippingDetail:shipDetail}; customers.push(savedCustomer); }
+  const shipDetail=(document.getElementById('no-ship-detail')?.value||'').trim();
+  const todayStr=new Date().toISOString().slice(0,10);
+  const recip=(recipientName||'').trim();
+  let savedCustomer = customers.find(c=>_nk(c.name)===_nk(customer)) || (phone && customers.find(c=>c.phone===phone));
+  if(!savedCustomer){
+    savedCustomer={id:'C'+Date.now(),name:customer,realName:(recip&&recip!==customer)?recip:'',lineName:'',email:'',phone,shipping:'',shippingDetail:'',methods:[]};
+    customers.push(savedCustomer);
+  } else {
+    if(!savedCustomer.phone && phone) savedCustomer.phone=phone;
+    if(!savedCustomer.realName && recip && recip!==customer) savedCustomer.realName=recip;
+  }
+  // 同一個人換了新的收件方式 → 加進他的「收件方式」清單；用過的方式累計次數
+  let ms=customerMethods(savedCustomer).map(m=>({...m}));
+  if(shipping){
+    const ex=ms.find(x=>(x.type||'')===shipping && (x.detail||'')===shipDetail);
+    if(ex){ ex.count=(ex.count||0)+1; ex.last=todayStr; }
+    else ms.push({type:shipping,detail:shipDetail,recipient:(recip&&recip!==customer&&recip!==savedCustomer.realName)?recip:'',phone:(phone&&phone!==savedCustomer.phone)?phone:'',count:1,last:todayStr});
+  }
+  if(ms.length){
+    // 有手動設為常用的就維持；否則「用最多次、同次數取最近」自動成為常用
+    const best = ms.find(m=>m.pinned) || [...ms].sort((a,b)=>(b.count||0)-(a.count||0)||String(b.last||'').localeCompare(String(a.last||'')))[0];
+    ms=[best, ...ms.filter(m=>m!==best)];
+    savedCustomer.shipping=best.type; savedCustomer.shippingDetail=best.detail||'';
+  }
+  savedCustomer.methods=ms;
   save('customers',customers);
   await pushCustomerToCloud(savedCustomer);
   await logActivity('建立訂單', `#${newId} ${customer}（$${total.toLocaleString()}）`);
@@ -2684,9 +2732,25 @@ window.processBulkImportFile=async function(){
 let customerSearch = '';
 // 客戶跟訂單的配對：優先用電話（唯一可靠），沒有電話時退而用姓名比對，
 // 避免大量沒有電話的歷史客戶全部互相配對到彼此的訂單。
+// ===== v1.5.0 客戶資料：暱稱／真實姓名／手機／多種收件方式 =====
+const SHIP_ICON = { '711':'🏪', '全家':'🏪', '黑貓':'🚚', '門市自取':'🙋', '':'📍' };
+function shipLabel(t){ return t==='黑貓' ? '宅配' : (t||'未分類'); }
+function shipDetailLabel(t){ return (t==='711'||t==='全家') ? '門市' : '地址'; }
+function _nk(x){ return String(x||'').trim().toLowerCase(); }
+function customerMethods(c){
+  const ms = Array.isArray(c.methods) ? c.methods.filter(m=>m && (m.type||m.detail)) : [];
+  if(ms.length) return ms;
+  return (c.shipping||c.shippingDetail) ? [{type:c.shipping||'', detail:c.shippingDetail||'', recipient:'', phone:'', count:1, last:''}] : [];
+}
+function isPrefMethod(c, m, i){ return (m.type||'')===(c.shipping||'') && (m.detail||'')===(c.shippingDetail||'') && (customerMethods(c).findIndex(x=>(x.type||'')===(c.shipping||'') && (x.detail||'')===(c.shippingDetail||''))===i); }
+function methodLine(m){ return `${SHIP_ICON[m.type]||'📍'} ${shipLabel(m.type)}${m.type==='門市自取'?'':(m.detail?'｜'+escH(m.detail):'')}`; }
+function customerMatches(c, v){
+  v=_nk(v); if(!v) return true;
+  return [c.name,c.realName,c.lineName,c.phone,c.email].some(x=>_nk(x).includes(v)) || customerMethods(c).some(m=>_nk(m.detail).includes(v)||_nk(m.recipient).includes(v));
+}
 function customerOrders(c, orders){
-  if(c.phone) return orders.filter(o=>o.phone===c.phone);
-  return orders.filter(o=>!o.phone && (o.customer===c.name || o.recipientName===c.name));
+  const names=new Set([_nk(c.name)]); if(c.realName) names.add(_nk(c.realName));
+  return orders.filter(o=> (c.phone && o.phone===c.phone) || names.has(_nk(o.customer)));
 }
 
 let customerSelectMode = false;
@@ -2695,17 +2759,22 @@ function customerCardsHTML(customers, orders){
   return customers.map(c=>{
     const cOrders = customerOrders(c, orders);
     const total = cOrders.reduce((sum,o)=>sum+(o.subtotal!=null?o.subtotal:o.items.reduce((s,it)=>s+itemLineTotal(it),0)),0);
-    const last = cOrders.sort((a,b)=>b.date.localeCompare(a.date))[0];
+    const last = [...cOrders].sort((a,b)=>b.date.localeCompare(a.date))[0];
     const initials = c.name.slice(-2);
     const checked = customerSelectedIds.has(c.id);
+    const ms = customerMethods(c);
+    const mHTML = ms.slice(0,3).map((m,i)=>`<div style="font-size:12px;color:var(--text2);line-height:1.5;word-break:break-all;">${methodLine(m)}${isPrefMethod(c,m,i)&&ms.length>1?' <span style="color:var(--gold);font-size:11px;">★常用</span>':''}</div>`).join('')
+      + (ms.length>3?`<div style="font-size:11px;color:var(--text3);">…還有 ${ms.length-3} 種收件方式</div>`:'')
+      || '<div style="font-size:12px;color:var(--text3);">尚未留收件資料</div>';
     return `<div class="customer-card" style="display:flex;gap:10px;align-items:flex-start;${checked?'outline:2px solid var(--gold);':''}" onclick="${customerSelectMode?`toggleCustomerSelect('${c.id}')`:`openCustomerDetail('${c.id}')`}">
       ${customerSelectMode?`<input type="checkbox" ${checked?'checked':''} style="width:20px;height:20px;margin-top:2px;flex-shrink:0;pointer-events:none;">`:''}
-      <div style="flex:1;">
-        <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
-          <div class="customer-avatar">${initials}</div>
-          <div style="flex:1;">
-            <div style="font-size:15px;font-weight:500;">${c.name}</div>
-            <div style="font-size:12px;color:var(--text2);">${c.phone||'未留電話'} · ${c.shipping||'—'}</div>
+      <div style="flex:1;min-width:0;">
+        <div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:10px;">
+          <div class="customer-avatar">${escH(initials)}</div>
+          <div style="flex:1;min-width:0;">
+            <div style="font-size:15px;font-weight:500;">${escH(c.name)}${c.realName&&c.realName!==c.name?` <span style="font-size:12px;color:var(--text2);font-weight:400;">${escH(c.realName)}</span>`:''}</div>
+            <div style="font-size:12px;color:var(--text2);margin-bottom:3px;">📱 ${escH(c.phone)||'未留手機'}${c.lineName?` · LINE：${escH(c.lineName)}`:''}</div>
+            ${mHTML}
           </div>
         </div>
         <div style="display:flex;gap:0;">
@@ -2728,14 +2797,14 @@ function customerCardsHTML(customers, orders){
 }
 function renderCustomers(){
   const orders = getOrders();
-  const customers = getCustomers().filter(c=> !customerSearch || c.name.includes(customerSearch)||c.phone.includes(customerSearch));
+  const customers = getCustomers().filter(c=> customerMatches(c, customerSearch));
   return `
     <div style="display:flex;gap:8px;align-items:center;">
-      <div class="search-bar" style="flex:1;"><span class="search-icon">🔍</span><input type="text" placeholder="搜尋客戶姓名或電話..." id="cust-search" value="${customerSearch}" oninput="setCustSearch(this.value)" style="padding-right:34px;"><span class="search-clear" id="cust-search-clear" style="display:${customerSearch?'flex':'none'};" onclick="document.getElementById('cust-search').value='';setCustSearch('');">✕</span></div>
+      <div class="search-bar" style="flex:1;"><span class="search-icon">🔍</span><input type="text" placeholder="搜尋暱稱、真實姓名、手機、門市／地址..." id="cust-search" value="${customerSearch}" oninput="setCustSearch(this.value)" style="padding-right:34px;"><span class="search-clear" id="cust-search-clear" style="display:${customerSearch?'flex':'none'};" onclick="document.getElementById('cust-search').value='';setCustSearch('');">✕</span></div>
       <button class="topbar-btn" style="background:rgba(26,10,46,0.08);flex-shrink:0;" onclick="refreshCustomersFromCloud()" title="同步雲端最新資料">🔄</button>
       <button class="topbar-btn" style="background:${customerSelectMode?'var(--gold)':'rgba(26,10,46,0.08)'};flex-shrink:0;width:auto;padding:0 10px;font-size:12px;" onclick="toggleCustomerSelectMode()">${customerSelectMode?'取消選取':'☑ 選取'}</button>
     </div>
-    ${!customerSelectMode?`<button class="btn btn-secondary btn-sm" style="width:100%;margin-bottom:14px;" onclick="openMergeDuplicateCustomers()">🔗 自動偵測同名客戶並合併</button>`:''}
+    ${!customerSelectMode?`<button class="btn btn-secondary btn-sm" style="width:100%;margin-bottom:14px;" onclick="openMergeDuplicateCustomers()">🔗 自動偵測同名客戶並合併（會一併合併收件方式）</button>`:''}
     <div id="customers-list">${customerCardsHTML(customers, orders)}</div>
     <div style="height:${customerSelectMode?'90':'40'}px;"></div>
     ${customerSelectMode?`
@@ -2832,7 +2901,7 @@ window.setCustSearch=function(v){
   const el=document.getElementById('customers-list');
   if(el){
     const orders=getOrders();
-    const customers=getCustomers().filter(c=> !v || c.name.includes(v)||c.phone.includes(v));
+    const customers=getCustomers().filter(c=> customerMatches(c, v));
     el.innerHTML = customerCardsHTML(customers, orders);
   }
   const clearBtn=document.getElementById('cust-search-clear'); if(clearBtn) clearBtn.style.display = v?'flex':'none';
@@ -2847,14 +2916,33 @@ window.openCustomerDetail=function(id){
         <div><div style="font-size:13px;">#${o.id}</div><div style="font-size:11px;color:var(--text3);">${o.date}</div></div>
         <span class="badge ${STATUS_BADGE[o.status]||'b-ship'}">${o.status}</span>
       </div>
-      <div style="font-size:12px;color:var(--text2);margin-top:4px;">${o.items.map(it=>`${itemName(it)}×${it.qty}`).join('、')}${o.total?' ｜ $'+o.total.toLocaleString():''}</div>
+      <div style="font-size:12px;color:var(--text2);margin-top:4px;">${o.items.map(it=>`${escH(itemName(it))}×${it.qty}`).join('、')}${o.total?' ｜ $'+o.total.toLocaleString():''}</div>
     </div>`).join('');
+  const ms=customerMethods(c);
+  const mBlocks=ms.map((m,i)=>{
+    const pref=isPrefMethod(c,m,i);
+    return `<div style="border:1px solid ${pref?'var(--gold)':'rgba(26,10,46,0.1)'};border-radius:10px;padding:10px 12px;margin-bottom:8px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+        <div style="font-size:14px;font-weight:500;">${SHIP_ICON[m.type]||'📍'} ${shipLabel(m.type)}${pref?' <span style="color:var(--gold);font-size:12px;">★常用</span>':''}</div>
+        <div style="font-size:11px;color:var(--text3);">${m.count?`用過 ${m.count} 次`:''}${m.last?` · ${m.last}`:''}</div>
+      </div>
+      ${m.type!=='門市自取'?`<div style="font-size:13px;margin-top:4px;word-break:break-all;">${shipDetailLabel(m.type)}：${escH(m.detail)||'—'}</div>`:''}
+      ${(m.recipient||m.phone)?`<div style="font-size:12px;color:var(--text2);margin-top:2px;">${m.recipient?'收件人：'+escH(m.recipient)+' ':''}${m.phone?'📱 '+escH(m.phone):''}</div>`:''}
+      <div style="display:flex;gap:8px;margin-top:8px;">
+        <button class="btn btn-secondary btn-sm" style="flex:1;margin:0;" onclick="copyCustomerShipping('${id}', this, ${i})">📋 複製這筆收件資料</button>
+        ${pref?'':`<button class="btn btn-secondary btn-sm" style="margin:0;" onclick="setPreferredMethod('${id}', ${i})">設為常用</button>`}
+      </div>
+    </div>`;
+  }).join('') || '<div style="font-size:13px;color:var(--text3);padding:4px 0 8px;">尚未留收件資料，按「編輯」新增</div>';
   openModal(`
-    <div class="modal-title">${c.name}</div>
-    <div class="detail-row"><span class="detail-key">電話</span><span class="detail-val">${c.phone||'—'}</span></div>
-    <div class="detail-row"><span class="detail-key">寄送方式</span><span class="detail-val">${c.shipping||'—'}</span></div>
-    <div class="detail-row"><span class="detail-key">寄送資訊</span><span class="detail-val">${c.shippingDetail||'—'}</span></div>
-    <button class="btn btn-secondary btn-sm" style="width:100%;margin-top:10px;" id="copy-cust-btn" onclick="copyCustomerShipping('${id}', this)">📋 一鍵複製收件資料</button>
+    <div class="modal-title">${escH(c.name)}</div>
+    <div class="detail-row"><span class="detail-key">社群暱稱</span><span class="detail-val">${escH(c.name)}</span></div>
+    <div class="detail-row"><span class="detail-key">真實姓名</span><span class="detail-val">${escH(c.realName)||'—'}</span></div>
+    <div class="detail-row"><span class="detail-key">LINE 名稱</span><span class="detail-val">${escH(c.lineName)||'—'}</span></div>
+    <div class="detail-row"><span class="detail-key">手機</span><span class="detail-val">${escH(c.phone)||'—'}</span></div>
+    ${c.email?`<div class="detail-row"><span class="detail-key">Email</span><span class="detail-val">${escH(c.email)}</span></div>`:''}
+    <div class="sec" style="margin:14px 0 8px;">收件方式（${ms.length} 種）</div>
+    ${mBlocks}
     <div style="display:flex;gap:8px;margin-top:8px;">
       <button class="btn btn-secondary" style="flex:1;margin-top:0;" onclick="openEditCustomer('${id}')">✏️ 編輯</button>
       <button class="btn" style="flex:1;margin-top:0;background:#fdece8;color:#c0392b;" onclick="confirmDeleteCustomer('${id}')">🗑 刪除</button>
@@ -2863,36 +2951,86 @@ window.openCustomerDetail=function(id){
     <button class="btn btn-secondary" style="width:100%;margin-top:14px;" onclick="_closeModal()">關閉</button>
   `);
 }
+window.setPreferredMethod=async function(id, idx){
+  const customers=getCustomers(); const c=customers.find(x=>x.id===id); if(!c) return;
+  const ms=customerMethods(c).map(m=>({...m, pinned:false}));
+  const m=ms[idx]; if(!m) return;
+  m.pinned=true;
+  c.methods=[m, ...ms.filter((_,i)=>i!==idx)];
+  c.shipping=m.type; c.shippingDetail=m.detail||'';
+  save('customers',customers); await pushCustomerToCloud(c);
+  await logActivity('設定常用收件方式', c.name);
+  toast('✅ 已設為常用收件方式'); openCustomerDetail(id); renderPage('customers');
+}
+// ---- 編輯客戶（含多種收件方式）----
+let _ecMethods = [];
+function _ecReadDOM(){
+  const rows=[...document.querySelectorAll('.ec-m-row')];
+  if(!rows.length) return;
+  _ecMethods = rows.map(r=>({
+    type:r.querySelector('.ec-m-type').value, detail:r.querySelector('.ec-m-detail').value.trim(),
+    recipient:r.querySelector('.ec-m-rec').value.trim(), phone:r.querySelector('.ec-m-phone').value.trim(),
+    count:parseInt(r.dataset.count)||0, last:r.dataset.last||'', pinned:r.dataset.pinned==='1' }));
+  const pr=document.querySelector('input[name="ec-pref"]:checked'); window._ecPref = pr ? parseInt(pr.value) : 0;
+}
+function _ecRender(){
+  const box=document.getElementById('ec-methods'); if(!box) return;
+  box.innerHTML = _ecMethods.map((m,i)=>`
+    <div class="ec-m-row" data-count="${m.count||0}" data-last="${escA(m.last||'')}" data-pinned="${m.pinned?1:0}" style="border:1px solid rgba(26,10,46,0.12);border-radius:10px;padding:10px;margin-bottom:8px;">
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;">
+        <label style="font-size:12px;display:flex;align-items:center;gap:4px;white-space:nowrap;"><input type="radio" name="ec-pref" value="${i}" ${i===(window._ecPref||0)?'checked':''}>常用</label>
+        <select class="form-select ec-m-type" style="flex:1;padding:8px;" onchange="_ecReadDOM();_ecRender()">
+          <option value=""${!m.type?' selected':''}>未分類</option>
+          ${SHIP_LIST.map(t=>`<option value="${t}"${m.type===t?' selected':''}>${t==='黑貓'?'宅配（黑貓）':t}</option>`).join('')}
+        </select>
+        <button class="btn btn-sm" style="margin:0;background:#fdece8;color:#c0392b;padding:6px 10px;" onclick="ecRemoveMethod(${i})">✕</button>
+      </div>
+      <input class="form-input ec-m-detail" placeholder="${m.type==='711'||m.type==='全家'?'門市名稱（例：光春門市）':'完整收件地址'}" value="${escA(m.detail||'')}" style="${m.type==='門市自取'?'display:none;':''}margin-bottom:6px;">
+      <div style="display:flex;gap:6px;">
+        <input class="form-input ec-m-rec" placeholder="收件人（選填，與本人不同才填）" value="${escA(m.recipient||'')}" style="flex:1;">
+        <input class="form-input ec-m-phone" placeholder="手機（選填）" value="${escA(m.phone||'')}" style="flex:1;">
+      </div>
+    </div>`).join('') || '<div style="font-size:12px;color:var(--text3);margin-bottom:8px;">尚未新增收件方式</div>';
+}
+window.ecAddMethod=function(){ _ecReadDOM(); _ecMethods.push({type:'711',detail:'',recipient:'',phone:'',count:0,last:''}); _ecRender(); }
+window.ecRemoveMethod=function(i){ _ecReadDOM(); _ecMethods.splice(i,1); if((window._ecPref||0)>=_ecMethods.length) window._ecPref=0; _ecRender(); }
 window.openEditCustomer=function(id){
   const c=getCustomers().find(x=>x.id===id); if(!c) return;
+  _ecMethods = customerMethods(c).map(m=>({...m}));
+  window._ecPref = Math.max(0, _ecMethods.findIndex((m,i)=>isPrefMethod(c,m,i)));
   openModal(`
     <div class="modal-title">編輯客戶資料</div>
-    <div class="form-block"><label class="form-label">姓名 *</label><input class="form-input" id="ec-name" value="${c.name}"></div>
-    <div class="form-block"><label class="form-label">電話</label><input class="form-input" id="ec-phone" value="${c.phone||''}"></div>
+    <div class="form-block"><label class="form-label">社群暱稱 *</label><input class="form-input" id="ec-name" value="${escA(c.name)}"></div>
+    <div class="form-block"><label class="form-label">真實姓名</label><input class="form-input" id="ec-real" value="${escA(c.realName||'')}"></div>
+    <div class="form-block"><label class="form-label">LINE 名稱</label><input class="form-input" id="ec-line" value="${escA(c.lineName||'')}"></div>
+    <div class="form-block"><label class="form-label">手機</label><input class="form-input" id="ec-phone" type="tel" value="${escA(c.phone||'')}"></div>
+    <div class="form-block"><label class="form-label">Email</label><input class="form-input" id="ec-email" type="email" value="${escA(c.email||'')}"></div>
     <div class="form-block">
-      <label class="form-label">寄送方式</label>
-      <select class="form-select" id="ec-shipping" onchange="document.getElementById('ec-detail-block').style.display=this.value==='門市自取'||!this.value?'none':'block'">
-        <option value=""${!c.shipping?' selected':''}>未設定</option>
-        ${SHIP_LIST.map(s=>`<option${c.shipping===s?' selected':''}>${s}</option>`).join('')}
-      </select>
-    </div>
-    <div class="form-block" id="ec-detail-block" style="${!c.shipping||c.shipping==='門市自取'?'display:none':''}">
-      <label class="form-label">寄送資訊（地址／門市）</label>
-      <input class="form-input" id="ec-detail" value="${c.shippingDetail||''}">
+      <label class="form-label">收件方式（可多種，勾選「常用」的會優先帶入）</label>
+      <div id="ec-methods"></div>
+      <button class="btn btn-secondary btn-sm" style="width:100%;margin:0;" onclick="ecAddMethod()">＋ 新增收件方式（711／宅配／自取）</button>
     </div>
     <button class="btn btn-gold" onclick="saveEditCustomer('${id}')">儲存變更</button>
   `);
+  _ecRender();
 }
 window.saveEditCustomer=async function(id){
   const customers=getCustomers();
   const i=customers.findIndex(c=>c.id===id);
   if(i<0) return;
   const name=document.getElementById('ec-name')?.value?.trim();
-  if(!name){ toast('⚠ 請填寫姓名'); return; }
+  if(!name){ toast('⚠ 請填寫社群暱稱'); return; }
+  _ecReadDOM();
+  let ms=_ecMethods.filter(m=>m.type||m.detail).map(m=>({type:m.type,detail:m.detail,recipient:m.recipient,phone:m.phone,count:m.count||0,last:m.last||'',pinned:false}));
+  let pref=Math.min(window._ecPref||0, Math.max(0,ms.length-1));
+  const prefOld=_ecMethods.filter(m=>m.type||m.detail)[pref];
+  if(ms.length){ const p=ms[pref]; p.pinned=true; ms=[p, ...ms.filter((_,k)=>k!==pref)]; }
   const updated={ ...customers[i], name,
+    realName:document.getElementById('ec-real')?.value?.trim()||'',
+    lineName:document.getElementById('ec-line')?.value?.trim()||'',
     phone:document.getElementById('ec-phone')?.value?.trim()||'',
-    shipping:document.getElementById('ec-shipping')?.value||'',
-    shippingDetail:document.getElementById('ec-detail')?.value||'' };
+    email:document.getElementById('ec-email')?.value?.trim()||'',
+    methods:ms, shipping:ms[0]?.type||'', shippingDetail:ms[0]?.detail||'' };
   customers[i]=updated;
   save('customers',customers);
   await pushCustomerToCloud(updated);
@@ -2981,15 +3119,23 @@ window.mergeCustomerGroup=async function(name){
   const group=customers.filter(c=>checkedIds.includes(c.id));
   // 選出資料最完整的一筆當作保留對象：優先有電話的，再優先有寄送地址的
   const keep = [...group].sort((a,b)=>{
-    const score=(c)=> (c.phone?2:0) + (c.shippingDetail?1:0);
+    const score=(c)=> (c.phone?2:0) + (c.shippingDetail?1:0) + (c.realName?1:0);
     return score(b)-score(a);
   })[0];
   const others = group.filter(c=>c.id!==keep.id);
-  // 把其他筆的收件地址併進保留下來那筆的「寄送資訊」欄位，避免資料遺失（客戶資料表沒有獨立備註欄位）
-  const extraInfo = others.filter(c=>c.shipping||c.shippingDetail).map(c=>`${c.shipping||''} ${c.shippingDetail||''}`.trim()).filter(Boolean);
-  if(extraInfo.length){
-    keep.shippingDetail = [keep.shippingDetail, '（其他收件地址：'+extraInfo.join('；')+'）'].filter(Boolean).join(' ');
-  }
+  // 合併所有收件方式（相同類型＋門市／地址只留一筆，次數相加）
+  const mergedMs = customerMethods(keep).map(m=>({...m}));
+  others.forEach(o=>{
+    customerMethods(o).forEach(m=>{
+      const ex = mergedMs.find(x=>(x.type||'')===(m.type||'') && (x.detail||'')===(m.detail||''));
+      if(ex){ ex.count=(ex.count||0)+(m.count||0); if((m.last||'')>(ex.last||'')) ex.last=m.last; }
+      else mergedMs.push({...m});
+    });
+    if(!keep.realName && o.realName) keep.realName=o.realName;
+    if(!keep.lineName && o.lineName) keep.lineName=o.lineName;
+    if(!keep.email && o.email) keep.email=o.email;
+  });
+  keep.methods = mergedMs;
   if(!keep.phone){ const withPhone=others.find(c=>c.phone); if(withPhone) keep.phone=withPhone.phone; }
 
   const remaining = customers.filter(c=>!others.some(o=>o.id===c.id));
@@ -3007,13 +3153,15 @@ window.mergeCustomerGroup=async function(name){
   toast(`✅ 已合併「${name}」的 ${group.length} 筆資料`);
   openMergeDuplicateCustomers();
 }
-window.copyCustomerShipping=async function(id, btn){
+window.copyCustomerShipping=async function(id, btn, idx){
   const c=getCustomers().find(x=>x.id===id); if(!c) return;
+  const ms=customerMethods(c);
+  const m = ms[idx!=null?idx:Math.max(0,ms.findIndex((x,i)=>isPrefMethod(c,x,i)))] || {type:c.shipping||'',detail:c.shippingDetail||''};
   const lines = [
-    `收件人：${c.name}`,
-    `電話：${c.phone}`,
-    `寄送方式：${c.shipping||'—'}`,
-    c.shipping && c.shipping!=='門市自取' ? `${c.shipping==='711'?'門市':'地址'}：${c.shippingDetail||'—'}` : ''
+    `收件人：${m.recipient||c.realName||c.name}`,
+    `電話：${m.phone||c.phone||'—'}`,
+    `寄送方式：${m.type==='黑貓'?'宅配（黑貓）':(m.type||'—')}`,
+    m.type && m.type!=='門市自取' ? `${shipDetailLabel(m.type)}：${m.detail||'—'}` : ''
   ].filter(Boolean);
   try{
     await navigator.clipboard.writeText(lines.join('\n'));
