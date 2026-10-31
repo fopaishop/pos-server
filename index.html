@@ -333,6 +333,7 @@ const CATS = ['坤平將軍','坤昌','崇迪佛','佛祖','藥師佛','師傅�
 const EFFECTS = ['招財','人緣','桃花','事業運','愛情','保護','化解小人','健康','逢凶化吉','財運','好運','催旺','開運','增加魅力','夫妻感情','考試順利','出行平安','生意興隆','升官','貴人運'];
 const MASTERS = ['月亮師傅','龍普Moon','蝶王古巴吉士納','阿贊歐','古巴文利','龍波爹','龍波言','阿贊摩納','龍波碧納','龍波翠','檳城鬼王','阿贊明','阿贊瓦魯','古巴迷','古巴蘇斌','龍波烏東沙','阿贊蒙','龍波貴','龍普Tim','龍波Gee','大法會','其他'];
 const STATUS_LIST = ['全部','待寄出','待選鍊子','待自取','已寄出','取消','退貨'];
+const ORDER_STATUS_CHOICES = ['待寄出','待選鍊子','待自取','已寄出','取消','退貨'];
 const STATUS_BADGE = { '待寄出':'b-ship','待選鍊子':'b-chain','待自取':'b-pick','已寄出':'b-done','取消':'b-cancel','退貨':'b-return' };
 const SHIP_LIST = ['門市自取','711','黑貓'];
 const SOURCE_LIST = ['門市','社群','LINE官方','蝦皮'];
@@ -346,9 +347,10 @@ const SUPABASE_URL = 'https://roxwskdpnsctoaflcomt.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJveHdza2RwbnNjdG9hZmxjb210Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg0Mjk3MDAsImV4cCI6MjEwNDAwNTcwMH0.CflNz8IOx85zo-apNjJkUBISqXYGVpu5-LJ5DDBPyxw';
 const TENANT_ID = 'dbf9fcd3-110a-4dde-8ef9-40c2f89967a9';
 // ===== 版本號：每次更新請遞增，登入頁與設定頁底部都會顯示 =====
-const APP_VERSION = 'v1.5.0';
+const APP_VERSION = 'v1.6.0';
 const APP_BUILD_DATE = '2026-10-30';
 const APP_CHANGELOG = [
+  ['v1.6.0','2026-10-30',['建立訂單、編輯訂單都可以直接選「訂單進度」（待寄出／待選鍊子／待自取／已寄出／取消／退貨）','帳號管理標題排版修正；每個人可在「帳號」裡修改自己的暱稱（顯示名稱），管理員也能改別人的','設定新增「預設功效設定」：列出每個商品種類目前的預設功效，點一下就能單獨編輯、清除或套用','商品照片畫質大幅提升：新上傳照片保留最長邊 2048px、JPEG 品質 90%（原本 1000px／82%），列表改用小縮圖載入，詳情看高畫質原圖']],
   ['v1.5.0','2026-10-30',['客戶資料改成「一人一張卡」：社群暱稱、真實姓名、LINE 名稱、手機、Email，並一次列出 711／宅配／自取等所有收件方式（標示常用）','客戶可新增、編輯、刪除多種收件方式，可手動設為常用；每種方式可單獨一鍵複製收件資料','建立訂單選到客戶時，自動帶入常用收件方式，客戶改選別種時一鍵切換；下單後自動記錄新的收件方式並統計常用','搜尋客戶可用暱稱、真實姓名、LINE 名稱、手機或門市／地址','匯入 2026.01～10 整理後的訂單（有日期用實際日期，沒日期當月 1 號）與 2025～2026 客戶資料']],
   ['v1.4.0','2026-10-30',['彈窗只有從最上方（把手附近）往下拉才會關閉，內容區上下滑動不會誤關','預算快速設定條改為每格 5,000 元，範圍 0～10 萬，拉到最右＝10 萬以上（欄位仍可手動輸入到 30 萬以上）','製作師傅依商品數量由多到少排序，名字含「廟」的用藍字和師傅區分，「其他」固定在最底']],
   ['v1.3.0','2026-10-30',['「權限設定」分頁改名為「設定」，頁內依常用程度排序：分類設定、帳號管理、身份權限、圖片搬移、操作紀錄','商品篩選的正陰牌／種類／師傅／功效改成下拉選單，全部可複選，可搜尋、顯示各選項商品數','預算範圍標題右側新增「重設預算」小按鈕','預算上限提高到 30 萬（滑桿前段細調到 6 萬，後段快速拉到 30 萬）','篩選條件一改變，下方結果立即更新']],
@@ -721,9 +723,11 @@ window.doLogout=async function(){
 window.promptSwitchRole=function(){
   openModal(`
     <div class="modal-title">帳號</div>
-    <div style="font-size:14px;margin-bottom:4px;">${currentProfile?.name||''}</div>
-    <div style="font-size:12px;color:var(--text3);margin-bottom:18px;">${currentProfile?.email||''} · ${currentRole==='admin'?'管理員':'客服/門市人員'}</div>
-    <button class="btn btn-secondary" style="width:100%;" onclick="_closeModal();doLogout()">登出</button>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:14px;">${escH(currentProfile?.email||'')} · ${currentRole==='admin'?'管理員':'客服/門市人員'}</div>
+    <label class="form-label">暱稱（顯示名稱）</label>
+    <input class="form-input" id="my-nick" value="${escA(currentProfile?.name||'')}" maxlength="20" style="margin-bottom:10px;">
+    <button class="btn btn-gold" style="width:100%;" onclick="saveMyNickname()">儲存暱稱</button>
+    <button class="btn btn-secondary" style="width:100%;margin-top:8px;" onclick="_closeModal();doLogout()">登出</button>
   `);
 }
 
@@ -1085,7 +1089,7 @@ window.openEditOrder=function(id){
   if(!o) return;
   _editOrderItems = o.items.map(it=> it.custom ? {...it, id:'custom_'+Math.random()} : { id:it.productId, name:itemName(it), price:itemPrice(it), qty:it.qty, custom:false, category:itemCategory(it) });
   _editForceFree = (o.shippingFee||0)===0 && o.shipping && o.shipping!=='門市自取';
-  _editOrderDraft = { customer:o.customer, recipientName:o.recipientName||'', phone:o.phone, shipping:o.shipping, shippingDetail:o.shippingDetail||'', gift:o.gift||'', staff:o.staff, note:o.note||'' };
+  _editOrderDraft = { customer:o.customer, recipientName:o.recipientName||'', phone:o.phone, shipping:o.shipping, shippingDetail:o.shippingDetail||'', gift:o.gift||'', staff:o.staff, note:o.note||'', status:o.status||'待寄出' };
   _closeModal();
   renderEditOrderModal(id);
 }
@@ -1101,6 +1105,7 @@ function captureEditOrderDraft(){
     gift: val('eo-gift', _editOrderDraft.gift),
     staff: val('eo-staff', _editOrderDraft.staff),
     note: val('eo-note', _editOrderDraft.note),
+    status: val('eo-status', _editOrderDraft.status),
   };
 }
 window.onEditOrderShipChange=function(id){
@@ -1118,7 +1123,7 @@ function editOrderSummary(shipping){
 }
 function renderEditOrderModal(id){
   const o = getOrders().find(x=>x.id===id); if(!o) return;
-  const d = _editOrderDraft || { customer:o.customer, recipientName:o.recipientName||'', phone:o.phone, shipping:o.shipping, shippingDetail:o.shippingDetail||'', gift:o.gift||'', staff:o.staff, note:o.note||'' };
+  const d = _editOrderDraft || { customer:o.customer, recipientName:o.recipientName||'', phone:o.phone, shipping:o.shipping, shippingDetail:o.shippingDetail||'', gift:o.gift||'', staff:o.staff, note:o.note||'', status:o.status||'待寄出' };
   const staff = getStaff();
   const shipping = d.shipping;
   const { subtotal, shippingFee, total } = editOrderSummary(shipping);
@@ -1162,6 +1167,7 @@ function renderEditOrderModal(id){
     </div>
     <div class="form-block"><label class="form-label">贈品</label><input class="form-input" id="eo-gift" value="${d.gift}"></div>
     <div class="form-block"><label class="form-label">接單人員</label><select class="form-select" id="eo-staff">${staff.map(s=>`<option${d.staff===s?' selected':''}>${s}</option>`).join('')}</select></div>
+    <div class="form-block"><label class="form-label">訂單進度</label><select class="form-select" id="eo-status">${ORDER_STATUS_CHOICES.map(x=>`<option${(d.status||'待寄出')===x?' selected':''}>${x}</option>`).join('')}</select></div>
     <div class="form-block"><label class="form-label">備註</label><textarea class="form-textarea" id="eo-note" rows="2">${d.note}</textarea></div>
     <button class="btn btn-gold" onclick="saveEditOrder('${id}')">儲存變更</button>
     <div style="height:20px;"></div>
@@ -1235,11 +1241,12 @@ window.saveEditOrder=async function(id){
     items:newItems, gift:document.getElementById('eo-gift')?.value||'',
     staff:document.getElementById('eo-staff')?.value||oldOrder.staff,
     note:document.getElementById('eo-note')?.value||'',
+    status:document.getElementById('eo-status')?.value||oldOrder.status,
     subtotal, shippingFee, total };
   orders[i]=updated;
   save('orders',orders);
   await pushOrderToCloud(updated);
-  await logActivity('編輯訂單', `#${id}`);
+  await logActivity('編輯訂單', `#${id}`+(updated.status!==oldOrder.status?` 進度 ${oldOrder.status}→${updated.status}`:''));
 
   _closeModal();
   toast('✅ 訂單已更新'+(CLOUD_ENABLED?'（已同步雲端）':''));
@@ -1352,6 +1359,10 @@ function renderNewOrder(){
     <div class="form-block">
       <label class="form-label">接單人員</label>
       <select class="form-select" id="no-staff">${staffOpts}</select>
+    </div>
+    <div class="form-block">
+      <label class="form-label">訂單進度</label>
+      <select class="form-select" id="no-status">${ORDER_STATUS_CHOICES.map(x=>`<option${(newOrder.status||'待寄出')===x?' selected':''}>${x}</option>`).join('')}</select>
     </div>
     <div class="form-block">
       <label class="form-label">客戶來源</label>
@@ -1573,7 +1584,7 @@ window.finalizeSubmitOrder=async function(forceFreeOverride){
     gift,
     staff:document.getElementById('no-staff')?.value||getStaff()[0],
     source:newOrder.source||'門市',
-    status:'待寄出',
+    status:document.getElementById('no-status')?.value||'待寄出',
     note:document.getElementById('no-note')?.value||'',
     subtotal, shippingFee, total
   };
@@ -2037,6 +2048,53 @@ window.saveCatSettings=async function(i){
   toast('✅ 已儲存');
   renderManageListModal('cats');
 }
+// ===== 預設功效設定（單獨一頁，列出所有種類）=====
+window.openDefaultEffectsModal=function(){
+  if(currentRole!=='admin'){ toast('⚠ 只有管理員可以修改'); return; }
+  const cats=getList('cats');
+  const rows=cats.map((c,i)=>{
+    const d=(CONFIG.catEffects[c]||[]).filter(e=>getList('effects').includes(e));
+    return `<div onclick="openDefaultEffectEdit(${i})" style="padding:12px 0;border-bottom:1px solid rgba(26,10,46,0.07);cursor:pointer;display:flex;gap:10px;align-items:flex-start;">
+      <div style="flex:1;min-width:0;">
+        <div style="font-size:14px;font-weight:500;margin-bottom:4px;">${escH(c)}</div>
+        <div style="display:flex;flex-wrap:wrap;gap:4px;">${d.length?d.map(e=>`<span style="font-size:11px;background:var(--surface2);border-radius:10px;padding:2px 8px;">${escH(e)}</span>`).join(''):'<span style="font-size:12px;color:var(--text3);">尚未設定</span>'}</div>
+      </div>
+      <span style="color:var(--text3);font-size:13px;flex-shrink:0;">編輯 ›</span>
+    </div>`;
+  }).join('') || '<div style="text-align:center;color:var(--text3);font-size:13px;padding:20px;">還沒有商品種類</div>';
+  openModal(`
+    <div class="modal-title">預設功效設定</div>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:6px;line-height:1.6;">新增商品時，選了種類會自動勾選這裡設定的功效（仍可手動調整）。點任一種類即可編輯。</div>
+    <div style="max-height:58vh;overflow-y:auto;">${rows}</div>
+    <button class="btn btn-secondary" style="width:100%;margin-top:12px;" onclick="_closeModal()">關閉</button>`);
+}
+window.openDefaultEffectEdit=function(i){
+  const cat=getList('cats')[i]; if(cat===undefined) return;
+  const defs=CONFIG.catEffects[cat]||[];
+  openModal(`
+    <div class="modal-title">${escH(cat)}・預設功效</div>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:10px;">勾選這個種類的預設功效（可多選）</div>
+    <div class="chip-row" id="de-effects-edit">${getList('effects').map(e=>`<span class="chip${defs.includes(e)?' on':''}" onclick="this.classList.toggle('on')">${escH(e)}</span>`).join('')}</div>
+    <button class="btn btn-gold" style="width:100%;margin-top:14px;" onclick="saveDefaultEffects(${i}, false)">儲存</button>
+    <button class="btn btn-secondary" style="width:100%;margin-top:8px;" onclick="saveDefaultEffects(${i}, true)">儲存並套用到此種類「還沒設功效」的現有商品</button>
+    <button class="btn btn-secondary" style="width:100%;margin-top:8px;" onclick="openDefaultEffectsModal()">返回</button>`);
+}
+window.saveDefaultEffects=async function(i, applyExisting){
+  const cat=getList('cats')[i]; if(cat===undefined) return;
+  const effs=[...document.querySelectorAll('#de-effects-edit .chip.on')].map(c=>c.textContent);
+  if(effs.length) CONFIG.catEffects[cat]=effs; else delete CONFIG.catEffects[cat];
+  await pushConfigToCloud();
+  let n=0;
+  if(applyExisting && effs.length){
+    const products=getProducts(); const changed=[];
+    products.forEach(p=>{ if(p.category===cat && (!p.effects||!p.effects.length)){ p.effects=[...effs]; changed.push(p); } });
+    n=changed.length;
+    if(n){ save('products',products); for(const p of changed) await pushProductToCloud(p); }
+  }
+  await logActivity('修改預設功效', `${cat}：${effs.join('、')||'無'}${applyExisting?`（套用 ${n} 件商品）`:''}`);
+  toast(`✅ 已儲存${applyExisting?`，套用到 ${n} 件商品`:''}`);
+  openDefaultEffectsModal();
+}
 // 新增商品表單裡「＋ 新增種類/師傅」
 window.addOptionViaPrompt=async function(type, sel){
   const cfg = LIST_CONFIG[type];
@@ -2122,7 +2180,10 @@ function driveId(url){
 }
 function imgThumb(url, w){
   const id = driveId(url);
-  return id ? `https://lh3.googleusercontent.com/d/${id}=w${w||400}` : url;
+  if(id) return `https://lh3.googleusercontent.com/d/${id}=w${w||400}`;
+  // 新上傳的照片有配對縮圖（-hq_t.jpg）：列表等小圖用縮圖，詳情大圖用高畫質原檔
+  if((w||400)<=700 && /-hq\.jpg(\?.*)?$/.test(String(url))) return String(url).replace(/-hq\.jpg/, '-hq_t.jpg');
+  return url;
 }
 function imgTag(url, w, extraStyle){
   if(!url) return '';
@@ -2463,17 +2524,21 @@ function compressImage(file, maxSide, quality){
   });
 }
 function blobToDataURL(b){ return new Promise(res=>{ const r = new FileReader(); r.onload = ()=>res(r.result); r.readAsDataURL(b); }); }
+// 畫質設定：最長邊像素 / JPEG 品質（0~1）。要更高就調大，檔案也會變大（約 0.6～1.5MB／張）
+const PHOTO_MAX_SIDE = 2048, PHOTO_QUALITY = 0.90, THUMB_MAX_SIDE = 640, THUMB_QUALITY = 0.82;
 async function uploadProductPhoto(file){
-  const blob = await compressImage(file, 1000, 0.82);
   if(CLOUD_ENABLED){
     try{
-      const path = `${TENANT_ID}/${Date.now()}-${Math.random().toString(36).slice(2,8)}.jpg`;
-      const { error } = await sb.storage.from('product-images').upload(path, blob, { contentType:'image/jpeg', cacheControl:'31536000' });
-      if(error) throw error;
-      return sb.storage.from('product-images').getPublicUrl(path).data.publicUrl;
+      const [full, thumb] = await Promise.all([ compressImage(file, PHOTO_MAX_SIDE, PHOTO_QUALITY), compressImage(file, THUMB_MAX_SIDE, THUMB_QUALITY) ]);
+      const base = `${TENANT_ID}/${Date.now()}-${Math.random().toString(36).slice(2,8)}-hq`;
+      const opt = { contentType:'image/jpeg', cacheControl:'31536000' };
+      const r1 = await sb.storage.from('product-images').upload(base+'.jpg', full, opt);
+      if(r1.error) throw r1.error;
+      sb.storage.from('product-images').upload(base+'_t.jpg', thumb, opt).catch(()=>{});  // 縮圖失敗不影響原圖
+      return sb.storage.from('product-images').getPublicUrl(base+'.jpg').data.publicUrl;
     }catch(e){ console.warn('照片上傳 Storage 失敗，改存壓縮後的內嵌圖片', e); }
   }
-  return await blobToDataURL(blob);
+  return await blobToDataURL(await compressImage(file, 1200, 0.85));   // 沒有雲端時存在本機，限制大小避免爆容量
 }
 window.onPhotoSlotFile=async function(input){
   const f = input.files && input.files[0]; if(!f) return;
@@ -3319,15 +3384,16 @@ function renderSettings(){
     <div style="background:var(--white);border-radius:var(--radius);padding:16px;margin-bottom:14px;border:1px solid rgba(26,10,46,0.06);">
       <div class="sec" style="margin:0 0 4px;">分類設定</div>
       <div style="font-size:12px;color:var(--text3);margin-bottom:10px;line-height:1.6;">調整商品種類、製作師傅、功效選項。有錯字可以直接改名，已建檔的商品會一起更新；種類還能設定編號前綴與預設功效。</div>
+      <button class="btn btn-secondary" style="width:100%;display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;" onclick="openDefaultEffectsModal()"><span>預設功效設定（依商品種類）</span><span style="color:var(--text3);font-size:12px;">已設 ${Object.keys(CONFIG.catEffects).filter(k=>getList('cats').includes(k)).length}/${getList('cats').length} ›</span></button>
       ${[['cats','商品種類'],['masters','製作師傅'],['effects','功效需求']].map(([t,l])=>`
         <button class="btn btn-secondary" style="width:100%;display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;" onclick="openManageListModal('${t}')"><span>${l}</span><span style="color:var(--text3);font-size:12px;">${getList(t).length} 項 ›</span></button>`).join('')}
       <div style="font-size:11px;margin-top:2px;color:${_configSyncOk===false?'#c0392b':'var(--text3)'};">${!CLOUD_ENABLED?'目前僅存在這支裝置':_configSyncOk===false?'⚠ 分類設定尚未同步到雲端（請先在 Supabase 執行 v1.2.0 的 SQL），目前只存在這支裝置':'☁️ 分類設定會同步到所有裝置'}</div>
     </div>
 
     <div style="background:var(--white);border-radius:var(--radius);padding:16px;margin-bottom:14px;border:1px solid rgba(26,10,46,0.06);">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
-        <div class="sec" style="margin:0;">帳號管理</div>
-        <button class="btn btn-primary btn-sm" style="margin:0;" onclick="openCreateAccountModal()">＋ 新增帳號</button>
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:10px;">
+        <div class="sec" style="margin:0;white-space:nowrap;flex:1;">帳號管理</div>
+        <button class="btn btn-primary btn-sm" style="margin:0;width:auto;flex-shrink:0;white-space:nowrap;padding:8px 14px;" onclick="openCreateAccountModal()">＋ 新增帳號</button>
       </div>
       <div id="accounts-list"><div style="text-align:center;color:var(--text3);font-size:12px;padding:20px;">載入中...</div></div>
     </div>
@@ -3372,6 +3438,17 @@ window.togglePermission=async function(key){
   renderPage('settings');
 }
 
+window.saveMyNickname=async function(){
+  const name=document.getElementById('my-nick')?.value?.trim();
+  if(!name){ toast('⚠ 暱稱不能空白'); return; }
+  try{
+    await callAdminApi('update_profile', { userId: currentUser.id, name });
+    currentProfile={ ...currentProfile, name };
+    applyRolePermissions();
+    toast('✅ 暱稱已更新'); _closeModal();
+    if(currentPage==='settings') loadAccountsList();
+  }catch(e){ toast('⚠ '+e.message+'（若提示找不到動作，請先更新 api/admin.js）'); }
+}
 // ---- 帳號管理 ----
 async function callAdminApi(action, payload){
   const { data:{ session } } = await sb.auth.getSession();
@@ -3397,11 +3474,11 @@ async function loadAccountsList(){
     if(error) throw error;
     el.innerHTML = data.map(a=>`
       <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid rgba(26,10,46,0.06);">
-        <div>
-          <div style="font-size:14px;">${a.name} ${a.id===currentUser?.id?'<span style="color:var(--text3);font-size:11px;">（你）</span>':''}</div>
+        <div style="min-width:0;flex:1;">
+          <div style="font-size:14px;">${escH(a.name)} ${a.id===currentUser?.id?'<span style="color:var(--text3);font-size:11px;">（你）</span>':''}</div>
           <div style="font-size:11px;color:var(--text3);">${a.email||''} · ${a.role==='admin'?'管理員':'客服/門市人員'}${a.active?'':' · 已停用'}</div>
         </div>
-        ${a.id===currentUser?.id?'':`<button class="btn btn-secondary btn-sm" style="margin:0;" onclick="openAccountEditModal('${a.id}')">管理</button>`}
+        ${a.id===currentUser?.id?`<button class="btn btn-secondary btn-sm" style="margin:0;width:auto;flex-shrink:0;" onclick="promptSwitchRole()">改暱稱</button>`:`<button class="btn btn-secondary btn-sm" style="margin:0;width:auto;flex-shrink:0;" onclick="openAccountEditModal('${a.id}')">管理</button>`}
       </div>`).join('') || '<div style="text-align:center;color:var(--text3);font-size:12px;padding:12px;">尚無帳號</div>';
   }catch(e){ console.error(e); el.innerHTML = '<div style="color:#c0392b;font-size:12px;">載入失敗</div>'; }
 }
@@ -3444,8 +3521,12 @@ window.openAccountEditModal=async function(userId){
   if(!a) return;
   openModal(`
     <div class="modal-title">管理帳號</div>
-    <div style="font-size:14px;margin-bottom:2px;">${a.name}</div>
-    <div style="font-size:12px;color:var(--text3);margin-bottom:16px;">${a.email||''}</div>
+    <div class="sec" style="margin:0 0 8px;">暱稱（顯示名稱）</div>
+    <div style="display:flex;gap:8px;margin-bottom:4px;">
+      <input class="form-input" id="ae-name" value="${escA(a.name||'')}" maxlength="20" style="flex:1;">
+      <button class="btn btn-gold btn-sm" style="margin:0;width:auto;flex-shrink:0;" onclick="updateAccount('${userId}',{name:document.getElementById('ae-name').value.trim()})">儲存</button>
+    </div>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:16px;">${escH(a.email||'')}</div>
     <div class="sec" style="margin:0 0 8px;">身份</div>
     <div class="switch" style="margin-bottom:16px;">
       <button class="switch-opt${a.role==='staff'?' on':''}" onclick="updateAccount('${userId}',{role:'staff'})">客服/門市人員</button>
