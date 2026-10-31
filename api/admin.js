@@ -53,11 +53,32 @@ async function handleRequest(req, res) {
     .eq('id', userData.user.id)
     .single();
 
-  if (profileErr || !callerProfile || callerProfile.role !== 'admin') {
-    return res.status(403).json({ error: '只有管理員能執行這個操作' });
+  if (profileErr || !callerProfile) {
+    return res.status(403).json({ error: '找不到你的帳號資料' });
   }
 
   const tenantId = callerProfile.tenant_id;
+
+  // 修改暱稱（顯示名稱）：每個人可以改自己的；管理員可以改同租戶任何人的
+  if (action === 'update_profile') {
+    const { userId, name } = payload || {};
+    const newName = String(name || '').trim().slice(0, 20);
+    if (!userId || !newName) return res.status(400).json({ error: '請提供帳號與暱稱' });
+    if (userId !== userData.user.id && callerProfile.role !== 'admin') {
+      return res.status(403).json({ error: '只能修改自己的暱稱' });
+    }
+    const { error } = await supabaseAdmin.from('profiles').update({ name: newName }).eq('id', userId).eq('tenant_id', tenantId);
+    if (error) throw error;
+    await supabaseAdmin.from('activity_log').insert({
+      tenant_id: tenantId, user_id: userData.user.id, action: '修改暱稱', detail: `暱稱改為：${newName}`,
+    });
+    return res.status(200).json({ ok: true });
+  }
+
+  // 以下動作只有管理員能執行
+  if (callerProfile.role !== 'admin') {
+    return res.status(403).json({ error: '只有管理員能執行這個操作' });
+  }
 
   try {
     if (action === 'create_user') {
@@ -93,17 +114,18 @@ async function handleRequest(req, res) {
     }
 
     if (action === 'update_account') {
-      const { userId, role, active } = payload || {};
+      const { userId, role, active, name } = payload || {};
       if (!userId) return res.status(400).json({ error: '缺少 userId' });
 
       // 不能停用/降級自己，避免管理員把自己鎖在系統外面
-      if (userId === userData.user.id) {
+      if (userId === userData.user.id && (role !== undefined || active !== undefined)) {
         return res.status(400).json({ error: '不能修改自己的帳號權限，請請另一位管理員協助操作' });
       }
 
       const updates = {};
       if (role !== undefined) updates.role = role === 'admin' ? 'admin' : 'staff';
       if (active !== undefined) updates.active = !!active;
+      if (name !== undefined && String(name).trim()) updates.name = String(name).trim().slice(0, 20);
 
       const { error } = await supabaseAdmin
         .from('profiles')
