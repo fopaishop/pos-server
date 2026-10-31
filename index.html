@@ -347,9 +347,10 @@ const SUPABASE_URL = 'https://roxwskdpnsctoaflcomt.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJveHdza2RwbnNjdG9hZmxjb210Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg0Mjk3MDAsImV4cCI6MjEwNDAwNTcwMH0.CflNz8IOx85zo-apNjJkUBISqXYGVpu5-LJ5DDBPyxw';
 const TENANT_ID = 'dbf9fcd3-110a-4dde-8ef9-40c2f89967a9';
 // ===== 版本號：每次更新請遞增，登入頁與設定頁底部都會顯示 =====
-const APP_VERSION = 'v1.6.0';
+const APP_VERSION = 'v1.7.0';
 const APP_BUILD_DATE = '2026-10-30';
 const APP_CHANGELOG = [
+  ['v1.7.0','2026-10-31',['訂單選商品時搜尋不到，按「手動輸入」會自動帶入剛剛打的字（建立、編輯訂單都適用；編輯訂單的選商品也新增搜尋）','客戶可手動合併不同暱稱：勾選「☑ 選取」多位客戶 → 合併，名稱自動串成「小怪小王」（可修改），所有暱稱記為別名，過往訂單、搜尋、下單比對都認得；收件方式、手機、真實姓名一併合併']],
   ['v1.6.0','2026-10-30',['建立訂單、編輯訂單都可以直接選「訂單進度」（待寄出／待選鍊子／待自取／已寄出／取消／退貨）','帳號管理標題排版修正；每個人可在「帳號」裡修改自己的暱稱（顯示名稱），管理員也能改別人的','設定新增「預設功效設定」：列出每個商品種類目前的預設功效，點一下就能單獨編輯、清除或套用','商品照片畫質大幅提升：新上傳照片保留最長邊 2048px、JPEG 品質 90%（原本 1000px／82%），列表改用小縮圖載入，詳情看高畫質原圖']],
   ['v1.5.0','2026-10-30',['客戶資料改成「一人一張卡」：社群暱稱、真實姓名、LINE 名稱、手機、Email，並一次列出 711／宅配／自取等所有收件方式（標示常用）','客戶可新增、編輯、刪除多種收件方式，可手動設為常用；每種方式可單獨一鍵複製收件資料','建立訂單選到客戶時，自動帶入常用收件方式，客戶改選別種時一鍵切換；下單後自動記錄新的收件方式並統計常用','搜尋客戶可用暱稱、真實姓名、LINE 名稱、手機或門市／地址','匯入 2026.01～10 整理後的訂單（有日期用實際日期，沒日期當月 1 號）與 2025～2026 客戶資料']],
   ['v1.4.0','2026-10-30',['彈窗只有從最上方（把手附近）往下拉才會關閉，內容區上下滑動不會誤關','預算快速設定條改為每格 5,000 元，範圍 0～10 萬，拉到最右＝10 萬以上（欄位仍可手動輸入到 30 萬以上）','製作師傅依商品數量由多到少排序，名字含「廟」的用藍字和師傅區分，「其他」固定在最底']],
@@ -449,10 +450,10 @@ async function pushOrderToCloud(o){
 }
 
 // ---- 客戶 ----
-function rowToCustomer(r){ return { id:r.id, name:r.name, phone:r.phone||'', shipping:r.shipping||'', shippingDetail:r.shipping_detail||'', realName:r.real_name||'', lineName:r.line_name||'', email:r.email||'', methods:Array.isArray(r.methods)?r.methods:[] }; }
+function rowToCustomer(r){ return { id:r.id, name:r.name, phone:r.phone||'', shipping:r.shipping||'', shippingDetail:r.shipping_detail||'', realName:r.real_name||'', lineName:r.line_name||'', email:r.email||'', methods:Array.isArray(r.methods)?r.methods:[], aliases:Array.isArray(r.aliases)?r.aliases:[] }; }
 function customerToRow(c, basic){
   const row={ id:c.id, tenant_id:TENANT_ID, name:c.name, phone:c.phone||'', shipping:c.shipping||'', shipping_detail:c.shippingDetail||'' };
-  if(!basic) Object.assign(row,{ real_name:c.realName||'', line_name:c.lineName||'', email:c.email||'', methods:c.methods||[] });
+  if(!basic) Object.assign(row,{ real_name:c.realName||'', line_name:c.lineName||'', email:c.email||'', methods:c.methods||[], aliases:c.aliases||[] });
   return row;
 }
 let _customerColsMissing = false;   // 雲端還沒執行 v1.5.0 的 SQL 時，退回舊欄位寫入，不會壞資料
@@ -470,7 +471,7 @@ async function pushCustomerToCloud(c){
   if(!CLOUD_ENABLED) return;
   try{
     let { error } = await sb.from('customers').upsert(customerToRow(c, _customerColsMissing));
-    if(error && !_customerColsMissing && /real_name|line_name|methods|email|column/i.test(error.message||'')){
+    if(error && !_customerColsMissing && /real_name|line_name|methods|email|aliases|column/i.test(error.message||'')){
       _customerColsMissing = true;
       toast('⚠ 雲端客戶表尚未升級，真實姓名／多種收件方式只存在本機。請執行 customers_import_v2.sql');
       ({ error } = await sb.from('customers').upsert(customerToRow(c, true)));
@@ -1176,16 +1177,23 @@ function renderEditOrderModal(id){
 window.editOrderChangeQty=function(i,delta,id){ captureEditOrderDraft(); _editOrderItems[i].qty+=delta; if(_editOrderItems[i].qty<=0) _editOrderItems.splice(i,1); renderEditOrderModal(id); }
 window.editOrderRemoveItem=function(i,id){ captureEditOrderDraft(); _editOrderItems.splice(i,1); renderEditOrderModal(id); }
 window.toggleEditForceFree=function(id){ captureEditOrderDraft(); _editForceFree=!_editForceFree; renderEditOrderModal(id); }
-window.openEditOrderProductPicker=function(id){
-  const products=getProducts();
-  openModal(`
-    <div class="modal-title">選擇商品</div>
-    <button class="btn btn-secondary btn-sm" style="width:100%;margin-bottom:10px;" onclick="openEditOrderCustomItem('${id}')">✏️ 其他（手動輸入）</button>
-    <div style="max-height:55vh;overflow-y:auto;">${products.map(p=>`
+let _editPickerQ='';
+function _editPickerRowsHTML(id){
+  const q=_editPickerQ;
+  const products=getProducts().filter(p=>!q||p.name.includes(q)||p.code.includes(q)||p.category.includes(q));
+  return products.slice(0,100).map(p=>`
       <div class="product-card" onclick="editOrderAddProduct('${p.id}','${id}')">
         <div class="product-img" style="width:44px;height:44px;font-size:18px;overflow:hidden;">${imgTag(p.image,160)||'🏺'}</div>
         <div><div class="product-name">${p.name}</div><div class="product-meta">${p.code}</div><div style="font-size:13px;font-weight:500;">$${p.price.toLocaleString()}</div></div>
-      </div>`).join('')}</div>
+      </div>`).join('') || '<div style="text-align:center;color:var(--text3);font-size:13px;padding:20px;">無符合商品，可用上方「手動輸入」</div>';
+}
+window.openEditOrderProductPicker=function(id, q){
+  _editPickerQ = q||'';
+  openModal(`
+    <div class="modal-title">選擇商品</div>
+    <div class="search-bar" style="margin-bottom:10px;"><span class="search-icon">🔍</span><input type="text" id="ep-search" placeholder="搜尋商品名稱、編號、種類..." value="${escA(_editPickerQ)}" oninput="_editPickerQ=this.value;document.getElementById('ep-results').innerHTML=_editPickerRowsHTML('${id}');document.getElementById('ep-custom-btn').textContent='✏️ 其他（手動輸入）'+(this.value?'：「'+this.value.replace(/[<>&]/g,'')+'」':'')"></div>
+    <button class="btn btn-secondary btn-sm" id="ep-custom-btn" style="width:100%;margin-bottom:10px;" onclick="openEditOrderCustomItem('${id}', _editPickerQ)">✏️ 其他（手動輸入）${_editPickerQ?`：「${escH(_editPickerQ)}」`:''}</button>
+    <div id="ep-results" style="max-height:50vh;overflow-y:auto;">${_editPickerRowsHTML(id)}</div>
   `);
 }
 window.editOrderAddProduct=function(pid,id){
@@ -1195,10 +1203,10 @@ window.editOrderAddProduct=function(pid,id){
   else _editOrderItems.push({...p,qty:1,custom:false});
   renderEditOrderModal(id);
 }
-window.openEditOrderCustomItem=function(id){
+window.openEditOrderCustomItem=function(id, prefill){
   openModal(`
     <div class="modal-title">手動輸入商品</div>
-    <div class="form-block"><label class="form-label">品名 *</label><input class="form-input" id="eci-name"></div>
+    <div class="form-block"><label class="form-label">品名 *</label><input class="form-input" id="eci-name" value="${escA(prefill||'')}"></div>
     <div class="form-block"><label class="form-label">單價 *</label><input class="form-input" type="number" id="eci-price"></div>
     <div class="form-block"><label class="form-label">數量</label><input class="form-input" type="number" id="eci-qty" value="1"></div>
     <button class="btn btn-gold" onclick="editOrderAddCustom('${id}')">加入訂單</button>
@@ -1476,7 +1484,7 @@ function renderProductPickerModal(){
   const html = `
     <div class="modal-title">選擇商品</div>
     <div class="search-bar" style="margin-bottom:10px;"><span class="search-icon">🔍</span><input type="text" id="pp-search" placeholder="搜尋商品名稱、編號、種類..." value="${q}" oninput="setProductPickerSearch(this.value)" autofocus></div>
-    <button class="btn btn-secondary btn-sm" style="width:100%;margin-bottom:10px;" onclick="openCustomItemForm()">✏️ 其他（手動輸入品名與金額）</button>
+    <button class="btn btn-secondary btn-sm" style="width:100%;margin-bottom:10px;" onclick="openCustomItemForm(productPickerSearch)">✏️ 其他（手動輸入品名與金額）${q?`：「${escH(q)}」`:''}</button>
     <div id="pp-results" style="max-height:50vh;overflow-y:auto;">${products.map(p=>`
       <div class="product-card" onclick="addProduct('${p.id}')">
         <div class="product-img" style="width:44px;height:44px;font-size:18px;overflow:hidden;">${imgTag(p.image,160)||'🏺'}</div>
@@ -1506,10 +1514,10 @@ window.setProductPickerSearch=function(v){
   }
 }
 
-window.openCustomItemForm=function(){
+window.openCustomItemForm=function(prefill){
   openModal(`
     <div class="modal-title">手動輸入商品</div>
-    <div class="form-block"><label class="form-label">品名 *</label><input class="form-input" id="ci-name" placeholder="例：客製化商品"></div>
+    <div class="form-block"><label class="form-label">品名 *</label><input class="form-input" id="ci-name" placeholder="例：客製化商品" value="${escA(prefill||'')}"></div>
     <div class="form-block"><label class="form-label">單價 *</label><input class="form-input" type="number" id="ci-price" placeholder="0"></div>
     <div class="form-block"><label class="form-label">數量</label><input class="form-input" type="number" id="ci-qty" value="1"></div>
     <button class="btn btn-gold" onclick="addCustomItem()">加入訂單</button>
@@ -1605,7 +1613,7 @@ window.finalizeSubmitOrder=async function(forceFreeOverride){
   const shipDetail=(document.getElementById('no-ship-detail')?.value||'').trim();
   const todayStr=new Date().toISOString().slice(0,10);
   const recip=(recipientName||'').trim();
-  let savedCustomer = customers.find(c=>_nk(c.name)===_nk(customer)) || (phone && customers.find(c=>c.phone===phone));
+  let savedCustomer = customers.find(c=>_nk(c.name)===_nk(customer) || (c.aliases||[]).some(a=>_nk(a)===_nk(customer))) || (phone && customers.find(c=>c.phone===phone));
   if(!savedCustomer){
     savedCustomer={id:'C'+Date.now(),name:customer,realName:(recip&&recip!==customer)?recip:'',lineName:'',email:'',phone,shipping:'',shippingDetail:'',methods:[]};
     customers.push(savedCustomer);
@@ -2811,10 +2819,10 @@ function isPrefMethod(c, m, i){ return (m.type||'')===(c.shipping||'') && (m.det
 function methodLine(m){ return `${SHIP_ICON[m.type]||'📍'} ${shipLabel(m.type)}${m.type==='門市自取'?'':(m.detail?'｜'+escH(m.detail):'')}`; }
 function customerMatches(c, v){
   v=_nk(v); if(!v) return true;
-  return [c.name,c.realName,c.lineName,c.phone,c.email].some(x=>_nk(x).includes(v)) || customerMethods(c).some(m=>_nk(m.detail).includes(v)||_nk(m.recipient).includes(v));
+  return [c.name,c.realName,c.lineName,c.phone,c.email,...(c.aliases||[])].some(x=>_nk(x).includes(v)) || customerMethods(c).some(m=>_nk(m.detail).includes(v)||_nk(m.recipient).includes(v));
 }
 function customerOrders(c, orders){
-  const names=new Set([_nk(c.name)]); if(c.realName) names.add(_nk(c.realName));
+  const names=new Set([_nk(c.name)]); if(c.realName) names.add(_nk(c.realName)); (c.aliases||[]).forEach(a=>names.add(_nk(a)));
   return orders.filter(o=> (c.phone && o.phone===c.phone) || names.has(_nk(o.customer)));
 }
 
@@ -2838,6 +2846,7 @@ function customerCardsHTML(customers, orders){
           <div class="customer-avatar">${escH(initials)}</div>
           <div style="flex:1;min-width:0;">
             <div style="font-size:15px;font-weight:500;">${escH(c.name)}${c.realName&&c.realName!==c.name?` <span style="font-size:12px;color:var(--text2);font-weight:400;">${escH(c.realName)}</span>`:''}</div>
+            ${(c.aliases||[]).length?`<div style="font-size:11px;color:var(--text3);">別名：${(c.aliases||[]).map(escH).join('、')}</div>`:''}
             <div style="font-size:12px;color:var(--text2);margin-bottom:3px;">📱 ${escH(c.phone)||'未留手機'}${c.lineName?` · LINE：${escH(c.lineName)}`:''}</div>
             ${mHTML}
           </div>
@@ -2875,7 +2884,7 @@ function renderCustomers(){
     ${customerSelectMode?`
     <div style="position:fixed;left:0;right:0;bottom:0;max-width:480px;margin:0 auto;background:var(--deep);padding:12px 16px;display:flex;gap:10px;align-items:center;z-index:50;">
       <span style="color:var(--gold-light);font-size:13px;flex:1;">已選 ${customerSelectedIds.size} 筆</span>
-      <button class="btn btn-secondary btn-sm" style="margin:0;" onclick="openBatchMergeReview()">合併</button>
+      <button class="btn btn-secondary btn-sm" style="margin:0;" onclick="openBatchMergeReview()">🔗 合併成一人</button>
       <button class="btn btn-sm" style="margin:0;background:#c0392b;color:#fff;" onclick="confirmBatchDeleteCustomers()">刪除</button>
     </div>`:''}`;
 }
@@ -2912,40 +2921,53 @@ window.batchDeleteCustomers=async function(){
   renderPage('customers');
 }
 // 手動勾選合併：可以先編輯確認合併後的內容，再儲存
+function _mergeBest(group){ return [...group].sort((a,b)=>{ const sc=c=>(c.phone?4:0)+(c.realName?2:0)+(customerMethods(c).length?1:0); return sc(b)-sc(a); })[0]; }
 window.openBatchMergeReview=function(){
   if(customerSelectedIds.size<2){ toast('⚠ 至少要勾選2筆才能合併'); return; }
   const group=getCustomers().filter(c=>customerSelectedIds.has(c.id));
-  const best=[...group].sort((a,b)=>{ const score=c=>(c.phone?2:0)+(c.shippingDetail?1:0); return score(b)-score(a); })[0];
+  const best=_mergeBest(group);
+  const names=[...new Set(group.flatMap(c=>[c.name,...(c.aliases||[])]).map(x=>String(x).trim()).filter(Boolean))];
+  const joined=names.join('');   // 小怪 + 小王 → 小怪小王
+  const firstOf=k=>group.map(c=>c[k]).find(Boolean)||'';
   openModal(`
-    <div class="modal-title">合併 ${group.length} 筆客戶資料</div>
-    <div style="font-size:12px;color:var(--text3);margin-bottom:14px;">以下已經幫你帶入建議內容，確認前可以直接修改。</div>
-    <div class="form-block"><label class="form-label">姓名</label><input class="form-input" id="bm-name" value="${best.name}"></div>
-    <div class="form-block"><label class="form-label">電話</label><input class="form-input" id="bm-phone" value="${best.phone||''}"></div>
-    <div class="form-block">
-      <label class="form-label">寄送方式</label>
-      <select class="form-select" id="bm-shipping">
-        <option value=""${!best.shipping?' selected':''}>未設定</option>
-        ${SHIP_LIST.map(s=>`<option${best.shipping===s?' selected':''}>${s}</option>`).join('')}
-      </select>
-    </div>
-    <div class="form-block"><label class="form-label">寄送資訊</label><input class="form-input" id="bm-detail" value="${best.shippingDetail||''}"></div>
-    <div style="font-size:12px;color:var(--text3);margin:10px 0;">原始 ${group.length} 筆資料（合併後會被刪除，只留上面這筆）：</div>
-    ${group.map(c=>`<div style="font-size:12px;color:var(--text2);padding:6px 0;border-bottom:1px solid rgba(26,10,46,0.06);">${c.name} · ${c.phone||'未留電話'} · ${c.shipping||'—'}${c.shippingDetail?' '+c.shippingDetail:''}</div>`).join('')}
+    <div class="modal-title">合併 ${group.length} 位客戶</div>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:14px;line-height:1.6;">把同一個人的不同暱稱合併成一位。原本的暱稱都會記為「別名」，過往訂單、搜尋、下單都還認得；所有收件方式一併保留。</div>
+    <div class="form-block"><label class="form-label">合併後的暱稱</label><input class="form-input" id="bm-name" value="${escA(joined)}">
+      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;">${[joined,...names].filter((x,i,a)=>x&&a.indexOf(x)===i).map(n=>`<span class="chip" onclick="document.getElementById('bm-name').value=this.dataset.n" data-n="${escA(n)}">${escH(n)}</span>`).join('')}</div></div>
+    <div class="form-block"><label class="form-label">真實姓名</label><input class="form-input" id="bm-real" value="${escA(best.realName||firstOf('realName'))}"></div>
+    <div class="form-block"><label class="form-label">LINE 名稱</label><input class="form-input" id="bm-line" value="${escA(firstOf('lineName'))}"></div>
+    <div class="form-block"><label class="form-label">手機</label><input class="form-input" id="bm-phone" value="${escA(best.phone||firstOf('phone'))}"></div>
+    <div class="form-block"><label class="form-label">Email</label><input class="form-input" id="bm-email" value="${escA(firstOf('email'))}"></div>
+    <div style="font-size:12px;color:var(--text3);margin:10px 0;">將合併這 ${group.length} 筆（合併後只留一位）：</div>
+    ${group.map(c=>`<div style="font-size:12px;color:var(--text2);padding:6px 0;border-bottom:1px solid rgba(26,10,46,0.06);">${escH(c.name)}${c.realName?'（'+escH(c.realName)+'）':''} · ${escH(c.phone)||'未留手機'} · ${customerMethods(c).map(m=>shipLabel(m.type)).join('／')||'無收件方式'}</div>`).join('')}
     <button class="btn btn-gold" style="margin-top:14px;" onclick="saveBatchMerge()">確認合併</button>
     <button class="btn btn-secondary" style="width:100%;margin-top:8px;" onclick="_closeModal()">取消</button>
   `);
 }
 window.saveBatchMerge=async function(){
   const name=document.getElementById('bm-name')?.value?.trim();
-  if(!name){ toast('⚠ 請填寫姓名'); return; }
+  if(!name){ toast('⚠ 請填寫合併後的暱稱'); return; }
   const ids=[...customerSelectedIds];
   const group=getCustomers().filter(c=>ids.includes(c.id));
-  const best=[...group].sort((a,b)=>{ const score=c=>(c.phone?2:0)+(c.shippingDetail?1:0); return score(b)-score(a); })[0];
-  const keep={ ...best,
-    name,
-    phone:document.getElementById('bm-phone')?.value?.trim()||'',
-    shipping:document.getElementById('bm-shipping')?.value||'',
-    shippingDetail:document.getElementById('bm-detail')?.value||'' };
+  if(group.length<2) return;
+  const best=_mergeBest(group);
+  const phone=document.getElementById('bm-phone')?.value?.trim()||'';
+  const aliases=[...new Set(group.flatMap(c=>[c.name,...(c.aliases||[])]).map(x=>String(x).trim()).filter(x=>x&&x!==name))];
+  // 收件方式：全部併起來（相同類型＋門市／地址只留一筆，次數相加）；原本別人的手機補在該收件方式上
+  const ms=[];
+  [best,...group.filter(c=>c.id!==best.id)].forEach(c=>{
+    customerMethods(c).forEach(m=>{
+      const ex=ms.find(x=>(x.type||'')===(m.type||'') && (x.detail||'')===(m.detail||''));
+      if(ex){ ex.count=(ex.count||0)+(m.count||0); if((m.last||'')>(ex.last||'')) ex.last=m.last; }
+      else ms.push({...m, phone:m.phone||((c.phone&&c.phone!==phone)?c.phone:'')});
+    });
+  });
+  const keep={ ...best, name, aliases,
+    realName:document.getElementById('bm-real')?.value?.trim()||'',
+    lineName:document.getElementById('bm-line')?.value?.trim()||'',
+    email:document.getElementById('bm-email')?.value?.trim()||'',
+    phone, methods:ms,
+    shipping:ms[0]?.type||'', shippingDetail:ms[0]?.detail||'' };
   const others=group.filter(c=>c.id!==keep.id);
   const remaining=getCustomers().filter(c=>!others.some(o=>o.id===c.id));
   const idx=remaining.findIndex(c=>c.id===keep.id);
@@ -2955,7 +2977,7 @@ window.saveBatchMerge=async function(){
   if(CLOUD_ENABLED){
     for(const o of others){ try{ await sb.from('customers').delete().eq('id',o.id); }catch(e){ console.error(e); } }
   }
-  await logActivity('批次合併客戶', `${group.length}筆合併為「${name}」`);
+  await logActivity('合併客戶', `${group.map(c=>c.name).join('、')} → 「${name}」`);
   customerSelectMode=false; customerSelectedIds=new Set();
   _closeModal();
   toast(`✅ 已合併為「${name}」`);
@@ -3002,6 +3024,7 @@ window.openCustomerDetail=function(id){
   openModal(`
     <div class="modal-title">${escH(c.name)}</div>
     <div class="detail-row"><span class="detail-key">社群暱稱</span><span class="detail-val">${escH(c.name)}</span></div>
+    ${(c.aliases||[]).length?`<div class="detail-row"><span class="detail-key">也叫</span><span class="detail-val">${(c.aliases||[]).map(escH).join('、')}</span></div>`:''}
     <div class="detail-row"><span class="detail-key">真實姓名</span><span class="detail-val">${escH(c.realName)||'—'}</span></div>
     <div class="detail-row"><span class="detail-key">LINE 名稱</span><span class="detail-val">${escH(c.lineName)||'—'}</span></div>
     <div class="detail-row"><span class="detail-key">手機</span><span class="detail-val">${escH(c.phone)||'—'}</span></div>
