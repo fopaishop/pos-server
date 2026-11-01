@@ -354,9 +354,10 @@ const SUPABASE_URL = 'https://roxwskdpnsctoaflcomt.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJveHdza2RwbnNjdG9hZmxjb210Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg0Mjk3MDAsImV4cCI6MjEwNDAwNTcwMH0.CflNz8IOx85zo-apNjJkUBISqXYGVpu5-LJ5DDBPyxw';
 const TENANT_ID = 'dbf9fcd3-110a-4dde-8ef9-40c2f89967a9';
 // ===== 版本號：每次更新請遞增，登入頁與設定頁底部都會顯示 =====
-const APP_VERSION = 'v1.10.0';
+const APP_VERSION = 'v1.11.0';
 const APP_BUILD_DATE = '2026-10-30';
 const APP_CHANGELOG = [
+  ['v1.11.0','2026-11-02',['客戶頁、訂單頁各新增「🩺 檢查」按鈕：一鍵檢查資料問題（缺手機、格式異常、重複編號、商品已刪除、金額為 0、客戶對不上…），點問題可直接開啟該筆處理；可一鍵補建缺少的客戶']],
   ['v1.10.0','2026-10-31',['新增「LINE 官方帳號推播」：商品庫、篩選結果、商品詳情都能「💬 加入推播清單」，選好商品後挑一位客戶，直接用官方帳號把商品卡片（照片、名稱、價格…）推播到他的 LINE','客戶資料可「綁定 LINE」：客人加官方帳號好友後，系統自動記下他的 LINE 名稱，在客戶詳情一鍵綁定','推播前可選語氣（輕鬆口語／正式專業）、要附的欄位、正反面照片；推播會計入官方帳號的訊息則數，送出前需再按一次確認','需要先部署 api/line.js、api/line-webhook.js，並在 Supabase 執行 supabase-update-v1.10.0.sql']],
   ['v1.8.0','2026-10-31',['重新整理網頁不再跳回首頁，會停在原本的頁面','客戶「偵測重複」升級：同名、疑似同名（大小寫／空白不同、名字互相包含、差一個字）、同收件資料（同手機、同門市或地址）三類，每組可查看明細、勾選後審核合併，也可標記「不是同一人」不再提醒']],
   ['v1.7.0','2026-10-31',['訂單選商品時搜尋不到，按「手動輸入」會自動帶入剛剛打的字（建立、編輯訂單都適用；編輯訂單的選商品也新增搜尋）','客戶可手動合併不同暱稱：勾選「☑ 選取」多位客戶 → 合併，名稱自動串成「小怪小王」（可修改），所有暱稱記為別名，過往訂單、搜尋、下單比對都認得；收件方式、手機、真實姓名一併合併']],
@@ -968,7 +969,7 @@ function renderOrders(){
       <button class="topbar-btn" style="background:rgba(26,10,46,0.08);flex-shrink:0;" onclick="refreshOrdersFromCloud()" title="同步雲端最新資料">🔄</button>
       <button class="topbar-btn" style="background:rgba(26,10,46,0.08);flex-shrink:0;width:auto;padding:0 10px;font-size:12px;" onclick="exportOrdersExcel()" title="匯出Excel">📊 匯出</button>
     </div>
-    <select class="form-select" style="margin-bottom:10px;" onchange="setOrderMonthFilter(this.value)">${monthOpts}</select>
+    <div style="display:flex;gap:8px;margin-bottom:10px;"><select class="form-select" style="flex:1;margin:0;" onchange="setOrderMonthFilter(this.value)">${monthOpts}</select><button class="btn btn-secondary btn-sm" style="margin:0;width:auto;flex-shrink:0;" onclick="openDebugCheck('orders')">🩺 檢查訂單</button></div>
     <div class="chip-row" style="margin-bottom:14px;">${statusBtns}</div>
     <div id="orders-list">${orderCardsHTML(filtered)}</div>
     <div style="height:80px;"></div>`;
@@ -3081,7 +3082,7 @@ function renderCustomers(){
       <button class="topbar-btn" style="background:rgba(26,10,46,0.08);flex-shrink:0;" onclick="refreshCustomersFromCloud()" title="同步雲端最新資料">🔄</button>
       <button class="topbar-btn" style="background:${customerSelectMode?'var(--gold)':'rgba(26,10,46,0.08)'};flex-shrink:0;width:auto;padding:0 10px;font-size:12px;" onclick="toggleCustomerSelectMode()">${customerSelectMode?'取消選取':'☑ 選取'}</button>
     </div>
-    ${!customerSelectMode?`<button class="btn btn-secondary btn-sm" style="width:100%;margin-bottom:14px;" onclick="openMergeDuplicateCustomers()">🔗 偵測重複客戶（同名／疑似同名／同收件資料）</button>`:''}
+    ${!customerSelectMode?`<div style="display:flex;gap:8px;margin-bottom:14px;"><button class="btn btn-secondary btn-sm" style="flex:1;margin:0;" onclick="openMergeDuplicateCustomers()">🔗 偵測重複客戶</button><button class="btn btn-secondary btn-sm" style="flex:1;margin:0;" onclick="openDebugCheck('customers')">🩺 檢查客戶</button></div>`:''}
     <div id="customers-list">${customerCardsHTML(customers, orders)}</div>
     <div style="height:${customerSelectMode?'90':'40'}px;"></div>
     ${customerSelectMode?`
@@ -3405,6 +3406,109 @@ function detectCustomerDuplicates(){
   const similar=buildGroups(pairsS).filter(g=>!g.every(id=>used.has(id)) || new Set(g.map(id=>_simName(getCustomers().find(c=>c.id===id).name))).size>1);
   return { same, similar, contact };
 }
+
+// ============ v1.11.0 資料偵錯檢查 ============
+const _PHONE_OK = p => /^09\d{8}$/.test(String(p||'').replace(/[\s-]/g,''));
+function runCustomerCheck(){
+  const cs=getCustomers(), orders=getOrders(), res=[];
+  const add=(level,title,hint,ids)=>{ if(ids.length) res.push({level,title,hint,ids:ids.map(x=>({id:x.id,label:x.label}))}); };
+  const L=c=>({id:c.id,label:c.name||'(無名稱)'});
+  add('err','沒有暱稱','客戶一定要有暱稱才找得到，請補上或刪除',cs.filter(c=>!String(c.name||'').trim()).map(L));
+  const idc={}; cs.forEach(c=>idc[c.id]=(idc[c.id]||0)+1);
+  add('err','客戶編號重複','同一個編號出現多次，可能互相覆蓋',cs.filter(c=>idc[c.id]>1).map(L));
+  add('warn','沒有手機','之後出貨聯絡、對訂單會比較困難',cs.filter(c=>!String(c.phone||'').trim()&&!customerMethods(c).some(m=>m.phone)).map(L));
+  add('warn','手機格式異常','台灣手機應為 09 開頭共 10 碼',cs.filter(c=>c.phone&&!_PHONE_OK(c.phone)).map(L));
+  add('warn','超商／宅配缺門市或地址','選了寄送方式但沒有填門市或地址',cs.filter(c=>customerMethods(c).some(m=>m.type&&m.type!=='門市自取'&&!String(m.detail||'').trim())).map(L));
+  add('info','偏好收件方式未列入清單','點「一鍵修正」可補進收件方式清單',cs.filter(c=>(c.shipping||c.shippingDetail)&&!(c.methods||[]).some(m=>(m.type||'')===(c.shipping||'')&&(m.detail||'')===(c.shippingDetail||''))).map(L));
+  add('info','沒有任何訂單','可能是舊資料或測試客戶',cs.filter(c=>!customerOrders(c,orders).length).map(L));
+  const lu={}; cs.forEach(c=>{ if(c.lineUserId) (lu[c.lineUserId]=lu[c.lineUserId]||[]).push(c); });
+  add('err','同一個 LINE 綁到多位客戶','推播會不知道該送給誰，請解除其中一位',Object.values(lu).filter(g=>g.length>1).flat().map(L));
+  const d=detectCustomerDuplicates(); const nd=d.same.length+d.similar.length+d.contact.length;
+  if(nd) res.push({level:'warn',title:`疑似重複客戶 ${nd} 組`,hint:'同名／疑似同名／同收件資料，點下方開啟審核',ids:[],action:['openMergeDuplicateCustomers()','開啟重複客戶審核']});
+  const fixable=res.some(r=>r.title==='偏好收件方式未列入清單');
+  return {res, total:cs.length, fix: fixable?'fixCustomerMethods()':''};
+}
+function runOrderCheck(){
+  const orders=getOrders(), cs=getCustomers(), res=[];
+  const add=(level,title,hint,ids)=>{ if(ids.length) res.push({level,title,hint,ids:ids.map(x=>({id:x.id,label:x.label}))}); };
+  const L=o=>({id:o.id,label:`#${o.id} ${o.customer||'(無客戶)'} ${o.date||''}`});
+  const idc={}; orders.forEach(o=>idc[o.id]=(idc[o.id]||0)+1);
+  add('err','訂單編號重複','同編號多筆，其中一筆可能被覆蓋',orders.filter(o=>idc[o.id]>1).map(L));
+  add('err','沒有客戶名稱','',orders.filter(o=>!String(o.customer||'').trim()).map(L));
+  add('err','沒有任何商品','訂單內容是空的',orders.filter(o=>!Array.isArray(o.items)||!o.items.length).map(L));
+  add('err','商品數量異常','數量為 0 或負數',orders.filter(o=>(o.items||[]).some(it=>!(it.qty>0))).map(L));
+  const prods=new Set(getProducts().map(p=>p.id));
+  add('warn','商品已不在商品庫','商品被刪除，名稱與價格會顯示不出來',orders.filter(o=>(o.items||[]).some(it=>!it.custom&&!prods.has(it.productId))).map(L));
+  const today=new Date().toISOString().slice(0,10);
+  add('warn','日期異常','日期格式不對或是未來日期',orders.filter(o=>!/^\d{4}-\d{2}-\d{2}$/.test(o.date||'')||o.date>today).map(L));
+  add('err','訂單狀態不合法','',orders.filter(o=>!ORDER_STATUS_CHOICES.includes(o.status)).map(L));
+  add('warn','總額為 0','有商品但總額是 0，統計會少算',orders.filter(o=>(o.items||[]).length&&!(o.total>0)&&o.status!=='取消').map(L));
+  add('warn','小計與商品加總不符','僅檢查全為手動輸入商品的訂單',orders.filter(o=>(o.items||[]).length&&o.items.every(it=>it.custom)&&o.subtotal>0&&Math.abs(o.subtotal-o.items.reduce((a,it)=>a+itemLineTotal(it),0))>1).map(L));
+  add('warn','手機缺漏或格式異常','',orders.filter(o=>o.status!=='取消'&&(!o.phone||!_PHONE_OK(o.phone))).map(L));
+  add('warn','超商／宅配缺門市或地址','',orders.filter(o=>o.shipping&&o.shipping!=='門市自取'&&!String(o.shippingDetail||'').trim()).map(L));
+  const stale=new Date(Date.now()-14*864e5).toISOString().slice(0,10);
+  add('info','待寄出超過 14 天','請確認是否漏寄或忘了改狀態',orders.filter(o=>o.status==='待寄出'&&/^\d{4}/.test(o.date||'')&&o.date<stale).map(L));
+  const orphan=orders.filter(o=>o.customer&&!cs.some(c=>customerOrders(c,[o]).length));
+  add('warn','找不到對應的客戶資料','點「一鍵補建客戶」可依訂單自動建立',orphan.map(L));
+  return {res, total:orders.length, fix: orphan.length?'fixOrphanOrders()':''};
+}
+let _dbgKind='customers';
+window.openDebugCheck=function(kind){
+  _dbgKind=kind||_dbgKind;
+  const isC=_dbgKind==='customers';
+  const r=isC?runCustomerCheck():runOrderCheck();
+  const icon={err:'🔴',warn:'🟡',info:'🔵'};
+  const open=isC?'openCustomerDetail':'openOrderDetail';
+  const errN=r.res.filter(x=>x.level==='err').length, warnN=r.res.filter(x=>x.level==='warn').length;
+  openModal(`
+    <div class="modal-title">🩺 檢查${isC?'客戶':'訂單'}（共 ${r.total} 筆）</div>
+    <div style="font-size:13px;margin-bottom:10px;color:var(--text2);">${r.res.length?`發現 ${r.res.length} 類問題：🔴 嚴重 ${errN}　🟡 建議處理 ${warnN}　🔵 提醒 ${r.res.length-errN-warnN}`:'✅ 沒有發現問題，資料很乾淨'}</div>
+    <div style="max-height:55vh;overflow-y:auto;">
+      ${r.res.map(x=>`
+        <div style="padding:10px 0;border-bottom:1px solid rgba(26,10,46,0.06);">
+          <div style="font-size:14px;font-weight:500;">${icon[x.level]} ${escH(x.title)}${x.ids.length?`（${x.ids.length}）`:''}</div>
+          ${x.hint?`<div style="font-size:12px;color:var(--text3);margin:2px 0 6px;">${escH(x.hint)}</div>`:''}
+          <div style="display:flex;flex-wrap:wrap;gap:6px;">
+            ${x.ids.slice(0,30).map(i=>`<span class="chip" style="font-size:12px;" onclick="${open}('${escA(i.id)}')">${escH(i.label)}</span>`).join('')}
+            ${x.ids.length>30?`<span style="font-size:12px;color:var(--text3);align-self:center;">…還有 ${x.ids.length-30} 筆</span>`:''}
+            ${x.action?`<button class="btn btn-secondary btn-sm" style="margin:0;width:auto;" onclick="${x.action[0]}">${x.action[1]}</button>`:''}
+          </div>
+        </div>`).join('')}
+    </div>
+    ${r.fix?`<button class="btn btn-primary" style="width:100%;margin-top:12px;" onclick="${r.fix}">🛠 ${isC?'一鍵修正：偏好方式補進清單':'一鍵補建缺少的客戶'}</button>`:''}
+    <div style="display:flex;gap:8px;margin-top:8px;">
+      <button class="btn btn-secondary" style="flex:1;" onclick="openDebugCheck()">重新檢查</button>
+      <button class="btn btn-secondary" style="flex:1;" onclick="_closeModal()">關閉</button>
+    </div>`);
+}
+window.fixCustomerMethods=async function(){
+  const cs=getCustomers(); let n=0; const touched=[];
+  cs.forEach(c=>{
+    if(!(c.shipping||c.shippingDetail)) return;
+    c.methods=Array.isArray(c.methods)?c.methods:[];
+    if(!c.methods.some(m=>(m.type||'')===(c.shipping||'')&&(m.detail||'')===(c.shippingDetail||''))){
+      c.methods.unshift({type:c.shipping||'',detail:c.shippingDetail||'',recipient:'',phone:'',count:1,last:'',pinned:true}); n++; touched.push(c);
+    }
+  });
+  save('customers',cs);
+  for(const c of touched) await pushCustomerToCloud(c);
+  await logActivity('資料檢查修正','補進收件方式 '+n+' 位客戶');
+  toast('✅ 已修正 '+n+' 位客戶'); openDebugCheck('customers');
+}
+window.fixOrphanOrders=async function(){
+  const orders=getOrders(), cs=getCustomers(); const made=[];
+  orders.forEach(o=>{
+    if(!o.customer) return;
+    if(cs.some(c=>customerOrders(c,[o]).length)) return;
+    const c={id:'C'+Date.now()+made.length,name:o.customer,realName:(o.recipientName&&o.recipientName!==o.customer)?o.recipientName:'',lineName:'',email:'',phone:o.phone||'',shipping:o.shipping||'',shippingDetail:o.shippingDetail||'',methods:o.shipping?[{type:o.shipping,detail:o.shippingDetail||'',recipient:o.recipientName||'',phone:o.phone||'',count:1,last:o.date||'',pinned:true}]:[],aliases:[]};
+    cs.push(c); made.push(c);
+  });
+  save('customers',cs);
+  for(const c of made) await pushCustomerToCloud(c);
+  await logActivity('資料檢查修正','補建客戶 '+made.length+' 位');
+  toast('✅ 已補建 '+made.length+' 位客戶'); openDebugCheck('orders');
+}
+
 let _dupTab='same';
 window.openMergeDuplicateCustomers=function(tab){
   if(tab) _dupTab=tab;
