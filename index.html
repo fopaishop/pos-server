@@ -354,9 +354,10 @@ const SUPABASE_URL = 'https://roxwskdpnsctoaflcomt.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJveHdza2RwbnNjdG9hZmxjb210Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg0Mjk3MDAsImV4cCI6MjEwNDAwNTcwMH0.CflNz8IOx85zo-apNjJkUBISqXYGVpu5-LJ5DDBPyxw';
 const TENANT_ID = 'dbf9fcd3-110a-4dde-8ef9-40c2f89967a9';
 // ===== 版本號：每次更新請遞增，登入頁與設定頁底部都會顯示 =====
-const APP_VERSION = 'v1.11.0';
+const APP_VERSION = 'v1.12.0';
 const APP_BUILD_DATE = '2026-10-30';
 const APP_CHANGELOG = [
+  ['v1.12.0','2026-11-02',['新增商品：商品照片移到最上方，第一步先放照片','商品庫新增篩選：可依種類篩選（可複選）、一鍵隱藏庫存為 0 的商品，並顯示符合件數，重新整理後仍記得設定']],
   ['v1.11.0','2026-11-02',['客戶頁、訂單頁各新增「🩺 檢查」按鈕：一鍵檢查資料問題（缺手機、格式異常、重複編號、商品已刪除、金額為 0、客戶對不上…），點問題可直接開啟該筆處理；可一鍵補建缺少的客戶']],
   ['v1.10.0','2026-10-31',['新增「LINE 官方帳號推播」：商品庫、篩選結果、商品詳情都能「💬 加入推播清單」，選好商品後挑一位客戶，直接用官方帳號把商品卡片（照片、名稱、價格…）推播到他的 LINE','客戶資料可「綁定 LINE」：客人加官方帳號好友後，系統自動記下他的 LINE 名稱，在客戶詳情一鍵綁定','推播前可選語氣（輕鬆口語／正式專業）、要附的欄位、正反面照片；推播會計入官方帳號的訊息則數，送出前需再按一次確認','需要先部署 api/line.js、api/line-webhook.js，並在 Supabase 執行 supabase-update-v1.10.0.sql']],
   ['v1.8.0','2026-10-31',['重新整理網頁不再跳回首頁，會停在原本的頁面','客戶「偵測重複」升級：同名、疑似同名（大小寫／空白不同、名字互相包含、差一個字）、同收件資料（同手機、同門市或地址）三類，每組可查看明細、勾選後審核合併，也可標記「不是同一人」不再提醒']],
@@ -2412,6 +2413,37 @@ window.imgFallback=function(el){
 
 // ============ PRODUCTS ============
 let productSearch = '';
+let productCats = (()=>{ try{ return JSON.parse(localStorage.getItem('bpd_prod_cats')||'[]'); }catch(e){ return []; } })();
+let productHideZero = (()=>{ try{ return localStorage.getItem('bpd_prod_hide0')==='1'; }catch(e){ return false; } })();
+function productPass(p){
+  const v=productSearch;
+  if(v && !(p.name.includes(v)||p.code.includes(v)||p.category.includes(v))) return false;
+  if(productCats.length && !productCats.includes(p.category)) return false;
+  if(productHideZero && !(p.stock>0)) return false;
+  return true;
+}
+function productFilterBarHTML(){
+  const all=getProducts(); const cnt={}; all.forEach(p=>cnt[p.category]=(cnt[p.category]||0)+1);
+  const cats=[...new Set([...getList('cats'),...Object.keys(cnt)])].filter(c=>cnt[c]);
+  const shown=all.filter(productPass).length;
+  return `<div class="chip-row" style="margin:2px 0 8px;">
+      <span class="chip${!productCats.length?' on':''}" onclick="setProdCat('')" style="white-space:nowrap;">全部</span>
+      ${cats.map((c,i)=>`<span class="chip${productCats.includes(c)?' on':''}" onclick="setProdCat('${escA(c).replace(/'/g,"\\'")}')" style="white-space:nowrap;">${escH(c)} ${cnt[c]}</span>`).join('')}
+    </div>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin:0 2px 8px;font-size:12px;color:var(--text2);">
+      <label style="display:flex;align-items:center;gap:6px;cursor:pointer;"><input type="checkbox" ${productHideZero?'checked':''} onchange="setProdHideZero(this.checked)"> 隱藏庫存為 0 的商品</label>
+      <span id="prod-count">顯示 ${shown} / ${all.length} 件</span>
+    </div>`;
+}
+window.setProdCat=function(c){
+  if(!c) productCats=[]; else { const k=productCats.indexOf(c); if(k>=0) productCats.splice(k,1); else productCats.push(c); }
+  try{ localStorage.setItem('bpd_prod_cats',JSON.stringify(productCats)); }catch(e){}
+  renderPage('products');
+}
+window.setProdHideZero=function(on){
+  productHideZero=!!on; try{ localStorage.setItem('bpd_prod_hide0',on?'1':'0'); }catch(e){}
+  renderPage('products');
+}
 let _sw = null, _swOpen = null;
 function productMeta(p){ return [p.code, p.master, p.year?p.year+'年':''].filter(Boolean).join(' · '); }
 function productCardsHTML(products){
@@ -2473,7 +2505,7 @@ window.swTap=function(card,id){
 }
 
 function renderProducts(){
-  const products = getProducts().filter(p=> !productSearch || p.name.includes(productSearch)||p.code.includes(productSearch)||p.category.includes(productSearch));
+  const products = getProducts().filter(productPass);
   return `
     <div style="display:flex;gap:8px;align-items:center;">
       <div class="search-bar" style="flex:1;"><span class="search-icon">🔍</span><input type="text" placeholder="搜尋商品名稱、種類..." id="prod-search" value="${escA(productSearch)}" oninput="setProdSearch(this.value)" style="padding-right:34px;"><span class="search-clear" id="prod-search-clear" style="display:${productSearch?'flex':'none'};" onclick="document.getElementById('prod-search').value='';setProdSearch('');">✕</span></div>
@@ -2481,19 +2513,20 @@ function renderProducts(){
       <button class="topbar-btn" style="background:rgba(26,10,46,0.08);flex-shrink:0;width:auto;padding:0 10px;font-size:12px;" onclick="openBulkImportModal()" title="批量匯入商品">📥 匯入</button>
     </div>
     ${CLOUD_ENABLED?'':'<div style="font-size:11px;color:var(--text3);margin:4px 2px 8px;">⚠ 尚未連接雲端資料庫，目前僅本機資料</div>'}
+    ${productFilterBarHTML()}
     <div style="font-size:11px;color:var(--text3);margin:6px 2px 8px;">💡 商品往左滑可以刪除；點進商品可直接修改各欄位</div>
     <div id="products-list">${productCardsHTML(products)}</div>
     <div style="height:80px;"></div>
     <button class="fab" onclick="openNewProduct()">＋</button>`;
 }
 function filteredProductsForList(){
-  const v = productSearch;
-  return getProducts().filter(p=> !v || p.name.includes(v)||p.code.includes(v)||p.category.includes(v));
+  return getProducts().filter(productPass);
 }
 window.setProdSearch=function(v){
   productSearch=v;
   const el=document.getElementById('products-list');
   if(el) el.innerHTML = productCardsHTML(filteredProductsForList());
+  const pc=document.getElementById('prod-count'); if(pc) pc.textContent='顯示 '+filteredProductsForList().length+' / '+getProducts().length+' 件';
   const clearBtn=document.getElementById('prod-search-clear'); if(clearBtn) clearBtn.style.display = v?'flex':'none';
 }
 // 不重畫整頁，只更新背後的商品列表/篩選結果（modal 開著時用）
@@ -2645,6 +2678,10 @@ window.openNewProduct=function(){
   _photoSlots = []; window._npEffTouched = false; window._npCodeManual = false;
   openModal(`
     <div class="modal-title">新增商品</div>
+    <div class="form-block">
+      <label class="form-label">① 先上傳商品照片（最多3張，正面放第一格、背面放第二格）</label>
+      <div id="photo-slots-container">${photoSlotsHTML()}</div>
+    </div>
     <div class="form-block"><label class="form-label">商品名稱 *</label><input class="form-input" id="np-name" placeholder="商品名稱"></div>
     <div class="form-block">
       <label class="form-label">種類 *</label>
@@ -2678,10 +2715,6 @@ window.openNewProduct=function(){
     <div class="form-block">
       <label class="form-label">功效（可複選；選種類後會自動帶入該種類的預設功效）</label>
       <div class="chip-row" id="np-effects">${effs.map(e=>`<span class="chip" onclick="this.classList.toggle('on');window._npEffTouched=true">${escH(e)}</span>`).join('')}</div>
-    </div>
-    <div class="form-block">
-      <label class="form-label">商品照片（最多3張，正面放第一格、背面放第二格）</label>
-      <div id="photo-slots-container">${photoSlotsHTML()}</div>
     </div>
     <button class="btn btn-gold" onclick="saveNewProduct()">確認建檔</button>
     <div style="height:20px;"></div>
