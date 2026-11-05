@@ -262,11 +262,6 @@ html, body { height: 100%; overflow: hidden; font-family: 'Noto Sans TC', sans-s
 .is-temple{color:#1f7a8c;font-weight:500;}
 .budget-ticks{display:flex;justify-content:space-between;font-size:10px;color:var(--text3);margin-top:2px;padding:0 2px;}
 
-/* v1.9.0 傳到 LINE */
-.line-add{border:1px solid #06c755;color:#06a047;background:#fff;border-radius:14px;font-size:11px;padding:3px 9px;cursor:pointer;white-space:nowrap;}
-.line-add.on{background:#06c755;color:#fff;}
-#line-bar{position:absolute;left:50%;transform:translateX(-50%);bottom:16px;z-index:90;display:none;align-items:center;gap:10px;background:#06c755;color:#fff;border-radius:26px;padding:10px 18px;box-shadow:0 4px 16px rgba(0,0,0,0.25);font-size:14px;cursor:pointer;white-space:nowrap;}
-.line-prev{width:100%;min-height:170px;border:1.5px solid rgba(26,10,46,0.15);border-radius:10px;padding:10px;font-size:13px;line-height:1.6;font-family:inherit;resize:vertical;background:var(--white);color:var(--text);}
 </style>
 </head>
 <body>
@@ -315,7 +310,6 @@ html, body { height: 100%; overflow: hidden; font-family: 'Noto Sans TC', sans-s
   </div>
 
   <!-- MODAL -->
-  <div id="line-bar" onclick="openLineSend()"><span>💬</span><span id="line-bar-text"></span><span style="opacity:.85;font-size:12px;">傳送 ›</span></div>
   <div class="modal-overlay" id="modal" onclick="closeModal(event)">
     <div class="modal-sheet" id="modal-sheet">
       <button class="modal-close-x" onclick="_closeModal()">✕</button>
@@ -354,9 +348,10 @@ const SUPABASE_URL = 'https://roxwskdpnsctoaflcomt.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJveHdza2RwbnNjdG9hZmxjb210Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg0Mjk3MDAsImV4cCI6MjEwNDAwNTcwMH0.CflNz8IOx85zo-apNjJkUBISqXYGVpu5-LJ5DDBPyxw';
 const TENANT_ID = 'dbf9fcd3-110a-4dde-8ef9-40c2f89967a9';
 // ===== 版本號：每次更新請遞增，登入頁與設定頁底部都會顯示 =====
-const APP_VERSION = 'v1.12.0';
+const APP_VERSION = 'v1.13.0';
 const APP_BUILD_DATE = '2026-10-30';
 const APP_CHANGELOG = [
+  ['v1.13.0','2026-11-02',['移除 LINE 官方帳號推播功能（推播清單、綁定客戶、推播按鈕）','「複製介紹」改名「複製文案」','修正「複製照片」按鈕失效：改用可跨網域的方式讀取圖片，手機若無法直接複製會自動改開分享選單（可選「拷貝」或「儲存影像」）']],
   ['v1.12.0','2026-11-02',['新增商品：商品照片移到最上方，第一步先放照片','商品庫新增篩選：可依種類篩選（可複選）、一鍵隱藏庫存為 0 的商品，並顯示符合件數，重新整理後仍記得設定']],
   ['v1.11.0','2026-11-02',['客戶頁、訂單頁各新增「🩺 檢查」按鈕：一鍵檢查資料問題（缺手機、格式異常、重複編號、商品已刪除、金額為 0、客戶對不上…），點問題可直接開啟該筆處理；可一鍵補建缺少的客戶']],
   ['v1.10.0','2026-10-31',['新增「LINE 官方帳號推播」：商品庫、篩選結果、商品詳情都能「💬 加入推播清單」，選好商品後挑一位客戶，直接用官方帳號把商品卡片（照片、名稱、價格…）推播到他的 LINE','客戶資料可「綁定 LINE」：客人加官方帳號好友後，系統自動記下他的 LINE 名稱，在客戶詳情一鍵綁定','推播前可選語氣（輕鬆口語／正式專業）、要附的欄位、正反面照片；推播會計入官方帳號的訊息則數，送出前需再按一次確認','需要先部署 api/line.js、api/line-webhook.js，並在 Supabase 執行 supabase-update-v1.10.0.sql']],
@@ -461,10 +456,10 @@ async function pushOrderToCloud(o){
 }
 
 // ---- 客戶 ----
-function rowToCustomer(r){ return { id:r.id, name:r.name, phone:r.phone||'', shipping:r.shipping||'', shippingDetail:r.shipping_detail||'', realName:r.real_name||'', lineName:r.line_name||'', email:r.email||'', methods:Array.isArray(r.methods)?r.methods:[], aliases:Array.isArray(r.aliases)?r.aliases:[], lineUserId:r.line_user_id||'', lineUserName:r.line_user_name||'' }; }
+function rowToCustomer(r){ return { id:r.id, name:r.name, phone:r.phone||'', shipping:r.shipping||'', shippingDetail:r.shipping_detail||'', realName:r.real_name||'', lineName:r.line_name||'', email:r.email||'', methods:Array.isArray(r.methods)?r.methods:[], aliases:Array.isArray(r.aliases)?r.aliases:[] }; }
 function customerToRow(c, basic){
   const row={ id:c.id, tenant_id:TENANT_ID, name:c.name, phone:c.phone||'', shipping:c.shipping||'', shipping_detail:c.shippingDetail||'' };
-  if(!basic) Object.assign(row,{ real_name:c.realName||'', line_name:c.lineName||'', email:c.email||'', methods:c.methods||[], aliases:c.aliases||[], line_user_id:c.lineUserId||'', line_user_name:c.lineUserName||'' });
+  if(!basic) Object.assign(row,{ real_name:c.realName||'', line_name:c.lineName||'', email:c.email||'', methods:c.methods||[], aliases:c.aliases||[] });
   return row;
 }
 let _customerColsMissing = false;   // 雲端還沒執行 v1.5.0 的 SQL 時，退回舊欄位寫入，不會壞資料
@@ -482,7 +477,7 @@ async function pushCustomerToCloud(c){
   if(!CLOUD_ENABLED) return;
   try{
     let { error } = await sb.from('customers').upsert(customerToRow(c, _customerColsMissing));
-    if(error && !_customerColsMissing && /real_name|line_name|methods|email|aliases|line_user|column/i.test(error.message||'')){
+    if(error && !_customerColsMissing && /real_name|line_name|methods|email|aliases|column/i.test(error.message||'')){
       _customerColsMissing = true;
       toast('⚠ 雲端客戶表尚未升級，真實姓名／多種收件方式只存在本機。請執行 customers_import_v2.sql');
       ({ error } = await sb.from('customers').upsert(customerToRow(c, true)));
@@ -1691,9 +1686,8 @@ function filterResultsHTML(){
         <div class="product-tags">${p.effects.slice(0,3).map(e=>`<span class="ptag ptag-effect">${e}</span>`).join('')}${p.type==='陰牌'?'<span class="ptag ptag-neg">陰牌</span>':'<span class="ptag ptag-pos">正牌</span>'}</div>
         <div class="price-tag">$${p.price.toLocaleString()}</div>
         <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;">
-          <button class="btn btn-primary btn-sm" style="flex:1;margin-top:0;min-width:90px;" id="cp-text-${i}" onclick="copyIntroText('${p.id}', this)">📋 複製介紹</button>
+          <button class="btn btn-primary btn-sm" style="flex:1;margin-top:0;min-width:90px;" id="cp-text-${i}" onclick="copyIntroText('${p.id}', this)">📋 複製文案</button>
           ${imgCopyButtonsHTML(p, 'cp-img-'+i)}
-          ${lineBtnHTML(p.id, true)}
         </div>
       </div>
     </div>`).join('');
@@ -2130,194 +2124,7 @@ window.addOptionViaPrompt=async function(type, sel){
   sel.dispatchEvent(new Event('change'));
 }
 
-// ---- 客服用：一鍵複製介紹文字 / 商品圖片，方便貼到 LINE 聊天室 ----
-// ================= 傳到 LINE =================
-let lineList = (()=>{ try{ return JSON.parse(localStorage.getItem('bpd_line_list')||'[]'); }catch(e){ return []; } })();
-function _saveLineList(){ try{ localStorage.setItem('bpd_line_list', JSON.stringify(lineList)); }catch(e){} updateLineBar(); }
-function lineHas(id){ return lineList.includes(id); }
-function lineBtnHTML(id, wide){
-  const on=lineHas(id);
-  return `<button class="line-add${on?' on':''}" data-line-id="${id}" style="${wide?'margin:0;padding:6px 12px;font-size:12px;':''}" onclick="event.stopPropagation();toggleLine('${id}', this)">${on?'✓ 推播清單':'💬 推播'}</button>`;
-}
-window.toggleLine=function(id, el, detail){
-  const i=lineList.indexOf(id);
-  if(i>=0) lineList.splice(i,1); else lineList.push(id);
-  _saveLineList();
-  const on=lineHas(id);
-  document.querySelectorAll(`[data-line-id="${id}"]`).forEach(b=>{ b.classList.toggle('on',on); b.textContent = on ? '✓ 推播清單' : '💬 推播'; });
-  if(detail && el){ el.textContent = on ? '✓ 已在推播清單' : '💬 加入推播清單'; }
-  toast(on ? `已加入推播清單（${lineList.length}）` : `已移出推播清單（${lineList.length}）`);
-}
-function updateLineBar(){
-  lineList = lineList.filter(id=>getProductById(id));
-  const bar=document.getElementById('line-bar'); if(!bar) return;
-  bar.style.display = lineList.length ? 'flex' : 'none';
-  const t=document.getElementById('line-bar-text'); if(t) t.textContent = `LINE 推播清單 ${lineList.length} 款`;
-}
-const LINE_FIELDS = [['price','價格'],['effects','功效'],['master','師傅／寺廟'],['feature','特色介紹'],['material','材料'],['year','年份'],['code','商品編號']];
-let _lineOpt = (()=>{ try{ const o=JSON.parse(localStorage.getItem('bpd_line_opt')||'null'); if(o) return o; }catch(e){} return { tone:'casual', fields:['price','effects','master','feature'], photos:'all' }; })();
-function _saveLineOpt(){ try{ localStorage.setItem('bpd_line_opt', JSON.stringify(_lineOpt)); }catch(e){} }
-// 推播前的開場文字（商品資訊放在商品卡片裡，不重複寫在文字）
-function buildLineGreeting(ids, tone){
-  const n=ids.length;
-  if(tone==='casual') return (n>1?`嗨嗨～幫你挑了 ${n} 款給你參考 😊`:'嗨～這款給你參考 😊')+'\n有喜歡的跟我說，我幫你留 🙌';
-  return (n>1?`您好，以下為您挑選之 ${n} 件商品，敬請參考。`:'您好，以下為您詢問之商品資訊，敬請參考。')+'\n如需進一步了解或預訂，歡迎隨時來訊，謝謝。';
-}
-function _hasPublicPhoto(p){
-  const imgs=(p.images&&p.images.length)?p.images:(p.image?[p.image]:[]);
-  return imgs.some(u=>/^https:\/\//.test(String(u))||driveId(u));
-}
-let _lineSendIds = [], _linePushCustomerId = '', _lineCustQ = '', _linePushArmed = false, _lineAfterBind = null;
-window.openLineSend=function(ids){
-  _lineSendIds = ((ids && ids.length) ? [...ids] : [...lineList]).filter(id=>getProductById(id));
-  if(!_lineSendIds.length){ toast('⚠ 推播清單是空的，先按商品上的「💬 推播」加入'); return; }
-  if(_lineSendIds.length>12){ _lineSendIds=_lineSendIds.slice(0,12); toast('LINE 一次最多推 12 款，已取前 12 款'); }
-  _lineCustQ=''; _linePushArmed=false;
-  renderLineSend(true);
-}
-function _lineCustRowsHTML(){
-  const cs=getCustomers().filter(c=>customerMatches(c,_lineCustQ))
-    .sort((a,b)=>(b.lineUserId?1:0)-(a.lineUserId?1:0) || String(a.name).localeCompare(String(b.name),'zh-Hant')).slice(0,40);
-  return cs.map(c=>{
-    const sel=c.id===_linePushCustomerId;
-    return `<div style="display:flex;align-items:center;gap:8px;padding:9px 8px;border-bottom:1px solid rgba(26,10,46,0.06);border-radius:8px;${sel?'background:rgba(6,199,85,0.12);':''}">
-      <div style="flex:1;min-width:0;${c.lineUserId?'cursor:pointer;':'opacity:.7;'}" ${c.lineUserId?`onclick="pickLineCustomer('${c.id}')"`:''}>
-        <div style="font-size:14px;">${sel?'✓ ':''}${escH(c.name)}${c.realName&&c.realName!==c.name?` <span style="font-size:12px;color:var(--text2);">${escH(c.realName)}</span>`:''}</div>
-        <div style="font-size:11px;color:var(--text3);">${c.lineUserId?`🟢 已綁定：${escH(c.lineUserName||'LINE 使用者')}`:'未綁定 LINE'}</div>
-      </div>
-      ${c.lineUserId?'':`<button class="btn btn-secondary btn-sm" style="margin:0;width:auto;flex-shrink:0;" onclick="openBindLine('${c.id}', true)">綁定</button>`}
-    </div>`;
-  }).join('') || '<div style="text-align:center;color:var(--text3);font-size:13px;padding:16px;">找不到客戶</div>';
-}
-function renderLineSend(regen){
-  const prev=document.getElementById('line-text');
-  const text=(!regen && prev) ? prev.value : buildLineGreeting(_lineSendIds,_lineOpt.tone);
-  const ps=_lineSendIds.map(getProductById).filter(Boolean);
-  const noPhoto=ps.filter(p=>!_hasPublicPhoto(p)).length;
-  const cust=getCustomers().find(c=>c.id===_linePushCustomerId);
-  openModal(`
-    <div class="modal-title">LINE 官方帳號推播（${ps.length} 款）</div>
-    <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;">${ps.map(p=>`<span style="font-size:12px;background:var(--surface2);border-radius:14px;padding:4px 6px 4px 10px;display:inline-flex;align-items:center;gap:6px;">${escH(p.name)}<span style="cursor:pointer;color:#c0392b;" onclick="lineRemove('${p.id}')">✕</span></span>`).join('')}</div>
-    <div class="sec" style="margin:0 0 6px;">1. 語氣（開場文字）</div>
-    <div class="switch" style="margin-bottom:10px;">
-      <button class="switch-opt${_lineOpt.tone==='casual'?' on':''}" onclick="setLineOpt('tone','casual')">輕鬆口語</button>
-      <button class="switch-opt${_lineOpt.tone==='formal'?' on':''}" onclick="setLineOpt('tone','formal')">正式專業</button>
-    </div>
-    <textarea class="line-prev" id="line-text" style="min-height:90px;">${escH(text)}</textarea>
-    <div class="sec" style="margin:12px 0 6px;">2. 商品卡片要附的資料</div>
-    <div class="chip-row" style="margin-bottom:10px;">${LINE_FIELDS.map(([k,l])=>`<span class="chip${_lineOpt.fields.includes(k)?' on':''}" onclick="toggleLineField('${k}')">${l}</span>`).join('')}</div>
-    <div class="switch" style="margin-bottom:6px;">
-      <button class="switch-opt${_lineOpt.photos==='all'?' on':''}" onclick="setLineOpt('photos','all')">正反面照片</button>
-      <button class="switch-opt${_lineOpt.photos==='first'?' on':''}" onclick="setLineOpt('photos','first')">只放正面</button>
-      <button class="switch-opt${_lineOpt.photos==='none'?' on':''}" onclick="setLineOpt('photos','none')">不附照片</button>
-    </div>
-    ${noPhoto && _lineOpt.photos!=='none'?`<div style="font-size:11px;color:#c0392b;margin-bottom:6px;">⚠ 有 ${noPhoto} 款沒有可公開的照片（可能存在本機或還沒上傳），那幾款卡片不會有圖。</div>`:''}
-    <div class="sec" style="margin:12px 0 6px;">3. 推播給誰</div>
-    <div class="search-bar" style="margin-bottom:6px;"><span class="search-icon">🔍</span><input type="text" id="line-cust-q" placeholder="搜尋客戶暱稱、真實姓名、手機..." value="${escA(_lineCustQ)}" oninput="_lineCustQ=this.value;document.getElementById('line-cust-list').innerHTML=_lineCustRowsHTML()"></div>
-    <div id="line-cust-list" style="max-height:200px;overflow-y:auto;">${_lineCustRowsHTML()}</div>
-    <button class="btn" id="line-push-btn" style="width:100%;margin-top:12px;background:#06c755;color:#fff;${cust&&cust.lineUserId?'':'opacity:.5;'}" onclick="sendLinePush()">${cust&&cust.lineUserId?`🚀 推播給「${escH(cust.name)}」`:'請先選一位已綁定 LINE 的客戶'}</button>
-    <div style="font-size:11px;color:var(--text3);margin-top:8px;line-height:1.6;">推播會用你的 LINE 官方帳號送出，計入官方帳號每月訊息則數（文字＋商品卡片視為 2 則）。客人需已加官方帳號好友。</div>
-    <button class="btn btn-secondary" style="width:100%;margin-top:10px;" onclick="_closeModal()">關閉</button>
-  `);
-}
-window.pickLineCustomer=function(id){ _linePushCustomerId=id; _linePushArmed=false; const t=document.getElementById('line-text')?.value; renderLineSend(false); }
-window.setLineOpt=function(k,v){ _lineOpt[k]=v; _saveLineOpt(); renderLineSend(k==='tone'); }
-window.toggleLineField=function(k){ const a=_lineOpt.fields, i=a.indexOf(k); if(i>=0) a.splice(i,1); else a.push(k); _saveLineOpt(); renderLineSend(false); }
-window.lineRemove=function(id){
-  _lineSendIds=_lineSendIds.filter(x=>x!==id);
-  const i=lineList.indexOf(id); if(i>=0){ lineList.splice(i,1); _saveLineList(); }
-  document.querySelectorAll(`[data-line-id="${id}"]`).forEach(b=>{ b.classList.remove('on'); b.textContent='💬 推播'; });
-  if(!_lineSendIds.length){ _closeModal(); toast('清單已清空'); return; }
-  renderLineSend(true);
-}
-async function callLineApi(action, payload){
-  if(!CLOUD_ENABLED) throw new Error('目前是本機測試模式，無法推播');
-  const { data:{ session } } = await sb.auth.getSession();
-  const res = await fetch('/api/line', { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ action, payload, accessToken: session?.access_token }) });
-  const text = await res.text(); let json;
-  try{ json = JSON.parse(text); }catch(e){ throw new Error('伺服器沒有回傳正確格式（api/line.js 可能尚未部署，或 Vercel 環境變數未設定）'); }
-  if(!res.ok) throw new Error(json.error||'推播失敗');
-  return json;
-}
-window.sendLinePush=async function(){
-  const c=getCustomers().find(x=>x.id===_linePushCustomerId);
-  const btn=document.getElementById('line-push-btn');
-  if(!c || !c.lineUserId){ toast('⚠ 請先選一位已綁定 LINE 的客戶'); return; }
-  if(!_linePushArmed){
-    _linePushArmed=true;
-    if(btn){ btn.textContent=`再按一次，確認推播給「${c.name}」`; btn.style.background='#c0392b'; }
-    setTimeout(()=>{ if(_linePushArmed){ _linePushArmed=false; const b=document.getElementById('line-push-btn'); if(b){ b.textContent=`🚀 推播給「${c.name}」`; b.style.background='#06c755'; } } }, 4000);
-    return;
-  }
-  _linePushArmed=false;
-  if(btn){ btn.disabled=true; btn.textContent='推播中…'; }
-  try{
-    const r=await callLineApi('push_products', { lineUserId:c.lineUserId, text:document.getElementById('line-text')?.value||'', productIds:_lineSendIds, fields:_lineOpt.fields, photos:_lineOpt.photos });
-    await logActivity('LINE 推播商品', `${c.name}：${r.sent} 款`);
-    _closeModal(); toast(`✅ 已推播 ${r.sent} 款商品給「${c.name}」`);
-  }catch(e){
-    toast('⚠ '+e.message);
-    if(btn){ btn.disabled=false; btn.textContent=`🚀 推播給「${c.name}」`; }
-  }
-}
-// ---- 客戶綁定 LINE ----
-let _bindCustId='', _bindQ='', _lineUsersCache=[];
-window.openBindLine=async function(custId, fromSend){
-  _bindCustId=custId; _bindQ=''; _lineAfterBind = fromSend ? ()=>renderLineSend(false) : null;
-  if(!CLOUD_ENABLED || !sb){ toast('⚠ 本機測試模式無法讀取 LINE 好友名單'); return; }
-  openModal('<div class="modal-title">綁定 LINE</div><div style="text-align:center;color:var(--text3);padding:24px;font-size:13px;">載入 LINE 好友名單…</div>');
-  try{
-    const { data, error } = await sb.from('line_users').select('*').eq('tenant_id', TENANT_ID).order('last_seen',{ascending:false}).limit(500);
-    if(error) throw error;
-    _lineUsersCache = data||[];
-  }catch(e){ console.error(e); _lineUsersCache=[]; toast('⚠ 讀取失敗，請確認已執行 supabase-update-v1.10.0.sql'); }
-  renderBindLine();
-}
-function _nameScore(c,u){
-  const n=_simName(u.display_name||''); if(!n) return 0;
-  const cands=[c.name,c.realName,c.lineName,...(c.aliases||[])].map(_simName).filter(Boolean);
-  return cands.some(x=>x===n)?3:cands.some(x=>x.includes(n)||n.includes(x))?2:0;
-}
-function _bindRowsHTML(c){
-  const boundBy={}; getCustomers().forEach(x=>{ if(x.lineUserId) boundBy[x.lineUserId]=x; });
-  const q=_simName(_bindQ);
-  const list=_lineUsersCache.filter(u=>!q||_simName(u.display_name||'').includes(q))
-    .sort((a,b)=>_nameScore(c,b)-_nameScore(c,a)).slice(0,60);
-  return list.map(u=>{
-    const other=boundBy[u.user_id]; const sc=_nameScore(c,u);
-    return `<div style="display:flex;align-items:center;gap:10px;padding:10px 4px;border-bottom:1px solid rgba(26,10,46,0.06);cursor:pointer;" onclick="bindLineUser('${escA(u.user_id)}')">
-      ${u.picture_url?`<img src="${escA(u.picture_url)}" style="width:34px;height:34px;border-radius:50%;object-fit:cover;">`:'<div style="width:34px;height:34px;border-radius:50%;background:var(--surface2);"></div>'}
-      <div style="flex:1;min-width:0;"><div style="font-size:14px;">${escH(u.display_name||'（未取得名稱）')}${sc>=2?' <span style="color:#06a047;font-size:11px;">名稱相近</span>':''}${u.status==='unfollow'?' <span style="color:#c0392b;font-size:11px;">已封鎖/退追蹤</span>':''}</div>
-      <div style="font-size:11px;color:var(--text3);">${other&&other.id!==c.id?'已綁定給：'+escH(other.name):'最後互動 '+String(u.last_seen||'').slice(0,10)}</div></div>
-    </div>`;
-  }).join('') || '<div style="text-align:center;color:var(--text3);font-size:13px;padding:20px;line-height:1.7;">還沒有 LINE 好友紀錄。<br>請確認 webhook 已設定，且客人已加官方帳號（或傳一則訊息給它）。</div>';
-}
-function renderBindLine(){
-  const c=getCustomers().find(x=>x.id===_bindCustId); if(!c) return;
-  openModal(`
-    <div class="modal-title">綁定 LINE：${escH(c.name)}</div>
-    <div style="font-size:12px;color:var(--text3);margin-bottom:8px;line-height:1.6;">從已加官方帳號好友的人裡選出這位客戶。名稱相近的會排在前面。</div>
-    <div class="search-bar" style="margin-bottom:8px;"><span class="search-icon">🔍</span><input type="text" placeholder="搜尋 LINE 名稱..." value="${escA(_bindQ)}" oninput="_bindQ=this.value;document.getElementById('bind-list').innerHTML=_bindRowsHTML(getCustomers().find(x=>x.id===_bindCustId))"></div>
-    <div id="bind-list" style="max-height:46vh;overflow-y:auto;">${_bindRowsHTML(c)}</div>
-    ${c.lineUserId?`<button class="btn" style="width:100%;margin-top:10px;background:#fdece8;color:#c0392b;" onclick="unbindLine()">解除綁定（目前：${escH(c.lineUserName||'LINE 使用者')}）</button>`:''}
-    <button class="btn btn-secondary" style="width:100%;margin-top:8px;" onclick="closeBindLine()">返回</button>`);
-}
-window.closeBindLine=function(){ if(_lineAfterBind){ const f=_lineAfterBind; _lineAfterBind=null; f(); } else openCustomerDetail(_bindCustId); }
-window.bindLineUser=async function(uid){
-  const customers=getCustomers(); const c=customers.find(x=>x.id===_bindCustId); const u=_lineUsersCache.find(x=>x.user_id===uid); if(!c||!u) return;
-  customers.forEach(x=>{ if(x.id!==c.id && x.lineUserId===uid){ x.lineUserId=''; x.lineUserName=''; pushCustomerToCloud(x); } });
-  c.lineUserId=uid; c.lineUserName=u.display_name||'';
-  save('customers',customers); await pushCustomerToCloud(c);
-  await logActivity('綁定 LINE', `${c.name} ↔ ${c.lineUserName}`);
-  toast(`✅ 已綁定「${c.name}」↔「${c.lineUserName||'LINE'}」`);
-  if(_lineAfterBind){ _linePushCustomerId=c.id; }
-  closeBindLine();
-}
-window.unbindLine=async function(){
-  const customers=getCustomers(); const c=customers.find(x=>x.id===_bindCustId); if(!c) return;
-  c.lineUserId=''; c.lineUserName=''; save('customers',customers); await pushCustomerToCloud(c);
-  toast('已解除綁定'); closeBindLine();
-}
+// ---- 客服用：一鍵複製文案 / 商品圖片 ----
 function buildIntroText(p){
   const lines = [
     `【${p.name}】`,
@@ -2339,27 +2146,44 @@ window.copyIntroText=async function(id, btn){
     setTimeout(()=>{ btn.textContent = original; }, 1600);
   }catch(e){ alert('複製失敗，請手動選取：\n\n'+text); }
 }
-async function copyImageUrl(url, btn){
+// 取得圖片並轉成 PNG（剪貼簿只吃 PNG）。要走 CORS，否則畫布被污染會轉檔失敗
+async function _imgToPngBlob(url){
+  const src = driveId(url) ? imgThumb(url, 2000) : url;
+  let bmp = null;
   try{
-    const pngBlob = await new Promise((resolve, reject)=>{
-      const img = new Image();
-      img.onload = ()=>{
-        const canvas = document.createElement('canvas');
-        canvas.width = img.naturalWidth; canvas.height = img.naturalHeight;
-        canvas.getContext('2d').drawImage(img,0,0);
-        canvas.toBlob(b=> b?resolve(b):reject(new Error('轉檔失敗')), 'image/png');
-      };
-      img.onerror = reject;
-      img.src = url;
+    const r = await fetch(src, { mode:'cors', cache:'no-cache' });
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    const blob = await r.blob();
+    bmp = await createImageBitmap(blob);
+  }catch(e1){
+    bmp = await new Promise((resolve,reject)=>{
+      const img = new Image(); img.crossOrigin = 'anonymous';
+      img.onload = ()=>resolve(img); img.onerror = ()=>reject(new Error('讀取圖片失敗'));
+      img.src = src + (String(src).startsWith('data:')?'':(src.includes('?')?'&':'?')+'cp='+Date.now());
     });
-    await navigator.clipboard.write([ new ClipboardItem({ 'image/png': pngBlob }) ]);
-    const original = btn.textContent;
-    btn.textContent = '✅ 已複製';
-    setTimeout(()=>{ btn.textContent = original; }, 1600);
-  }catch(e){
-    console.error(e);
-    toast('⚠ 這個瀏覽器不支援複製圖片，改用長按圖片存檔');
   }
+  const w = bmp.width||bmp.naturalWidth, h = bmp.height||bmp.naturalHeight;
+  const canvas = document.createElement('canvas'); canvas.width = w; canvas.height = h;
+  canvas.getContext('2d').drawImage(bmp,0,0);
+  return await new Promise((resolve,reject)=> canvas.toBlob(b=> b?resolve(b):reject(new Error('轉檔失敗')), 'image/png'));
+}
+async function copyImageUrl(url, btn){
+  const original = btn.textContent;
+  const done = ()=>{ btn.textContent = '✅ 已複製'; setTimeout(()=>{ btn.textContent = original; }, 1600); };
+  btn.textContent = '處理中…';
+  try{
+    if(!(window.ClipboardItem && navigator.clipboard && navigator.clipboard.write)) throw new Error('no-clipboard');
+    // 直接把 Promise 交給 ClipboardItem：iPhone Safari 才不會因為等圖片載入而失去「點擊」授權
+    await navigator.clipboard.write([ new ClipboardItem({ 'image/png': _imgToPngBlob(url) }) ]);
+    done(); return;
+  }catch(e){ console.warn('複製圖片失敗，改用分享選單', e); }
+  try{
+    const blob = await _imgToPngBlob(url);
+    const f = new File([blob], 'photo.png', { type:'image/png' });
+    if(navigator.canShare && navigator.canShare({ files:[f] })){ btn.textContent = original; await navigator.share({ files:[f] }); return; }
+  }catch(e2){ if(e2 && e2.name==='AbortError'){ btn.textContent = original; return; } console.error(e2); }
+  btn.textContent = original;
+  toast('⚠ 無法複製圖片，請進商品詳情長按圖片儲存');
 }
 window.copyProductImage=async function(id, btn){
   const p = getProductById(id); if(!p||!p.image) return;
@@ -2377,7 +2201,7 @@ function photoLabel(idx){ return idx===0?'正面':idx===1?'背面':`第${idx+1}�
 function imgCopyButtonsHTML(p, keyPrefix){
   const imgs = (p.images&&p.images.length) ? p.images : (p.image?[p.image]:[]);
   if(!imgs.length) return '';
-  return imgs.map((url,j)=>`<button class="btn btn-secondary btn-sm" style="flex:1;margin-top:0;min-width:72px;" id="${keyPrefix}-${j}" onclick="copyProductImageAt('${p.id}',${j},this)">🖼 ${imgs.length>1?photoLabel(j):'複製圖片'}</button>`).join('');
+  return imgs.map((url,j)=>`<button class="btn btn-secondary btn-sm" style="flex:1;margin-top:0;min-width:72px;" id="${keyPrefix}-${j}" onclick="copyProductImageAt('${p.id}',${j},this)">🖼 ${imgs.length>1?'複製'+photoLabel(j):'複製照片'}</button>`).join('');
 }
 
 
@@ -2454,7 +2278,7 @@ function productCardsHTML(products){
       <div class="product-card" ontouchstart="swStart(event)" ontouchmove="swMove(event)" ontouchend="swEnd(event)" ontouchcancel="swEnd(event)" onclick="swTap(this,'${p.id}')">
         <div class="product-img" style="font-size:24px;overflow:hidden;">${imgTag(p.image,160)||'🏺'}</div>
         <div style="flex:1;min-width:0;">
-          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:6px;"><div class="product-name">${escH(p.name)}</div>${lineBtnHTML(p.id)}</div>
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:6px;"><div class="product-name">${escH(p.name)}</div></div>
           <div class="product-meta">${escH(productMeta(p))}</div>
           <div class="product-tags">
             ${(p.effects||[]).slice(0,3).map(e=>`<span class="ptag ptag-effect">${escH(e)}</span>`).join('')}
@@ -2575,11 +2399,7 @@ function productDetailHTML(p){
       </span>
     </div>
     ${detailRow(p,'price','$'+(p.price||0).toLocaleString())}
-    <button class="btn btn-secondary" style="width:100%;margin-top:10px;" id="detail-cp-intro" onclick="copyIntroText('${id}', this)">📋 複製介紹文字</button>
-    <div style="display:flex;gap:8px;margin-top:10px;">
-      <button class="btn" style="flex:1;margin-top:0;background:#06c755;color:#fff;" onclick="openLineSend(['${id}'])">🚀 推播給客戶</button>
-      <button class="btn btn-secondary" style="flex:1;margin-top:0;" id="detail-line-add" onclick="toggleLine('${id}', this, true)">${lineHas(id)?'✓ 已在推播清單':'💬 加入推播清單'}</button>
-    </div>
+    <button class="btn btn-secondary" style="width:100%;margin-top:10px;" id="detail-cp-intro" onclick="copyIntroText('${id}', this)">📋 複製文案</button>
     <div style="display:flex;gap:8px;margin-top:10px;">
       <button class="btn btn-secondary" style="flex:1;margin-top:0;" onclick="openEditProduct('${id}')">✏️ 編輯照片/完整編輯</button>
       <button class="btn" style="flex:1;margin-top:0;background:#fdece8;color:#c0392b;" onclick="confirmDeleteProduct('${id}')">🗑 刪除</button>
@@ -3082,7 +2902,7 @@ function customerCardsHTML(customers, orders){
           <div class="customer-avatar">${escH(initials)}</div>
           <div style="flex:1;min-width:0;">
             <div style="font-size:15px;font-weight:500;">${escH(c.name)}${c.realName&&c.realName!==c.name?` <span style="font-size:12px;color:var(--text2);font-weight:400;">${escH(c.realName)}</span>`:''}</div>
-            ${c.lineUserId?'<div style="font-size:11px;color:#06a047;">🟢 已綁定 LINE</div>':''}
+            
             ${(c.aliases||[]).length?`<div style="font-size:11px;color:var(--text3);">別名：${(c.aliases||[]).map(escH).join('、')}</div>`:''}
             <div style="font-size:12px;color:var(--text2);margin-bottom:3px;">📱 ${escH(c.phone)||'未留手機'}${c.lineName?` · LINE：${escH(c.lineName)}`:''}</div>
             ${mHTML}
@@ -3265,8 +3085,6 @@ window.openCustomerDetail=function(id){
     ${(c.aliases||[]).length?`<div class="detail-row"><span class="detail-key">也叫</span><span class="detail-val">${(c.aliases||[]).map(escH).join('、')}</span></div>`:''}
     <div class="detail-row"><span class="detail-key">真實姓名</span><span class="detail-val">${escH(c.realName)||'—'}</span></div>
     <div class="detail-row"><span class="detail-key">LINE 名稱</span><span class="detail-val">${escH(c.lineName)||'—'}</span></div>
-    <div class="detail-row" style="align-items:center;"><span class="detail-key">LINE 官方帳號</span><span class="detail-val" style="display:flex;align-items:center;gap:8px;justify-content:flex-end;flex-wrap:wrap;">${c.lineUserId?`<span style="color:#06a047;">🟢 已綁定 ${escH(c.lineUserName||'')}</span>`:'<span style="color:var(--text3);">未綁定</span>'}<button class="btn btn-secondary btn-sm" style="margin:0;width:auto;" onclick="openBindLine('${id}')">${c.lineUserId?'更換':'綁定'}</button></span></div>
-    ${c.lineUserId?`<button class="btn" style="width:100%;margin-top:8px;background:#06c755;color:#fff;" onclick="_linePushCustomerId='${id}';_closeModal();openLineSend()">🚀 推播商品給這位客戶（清單 ${lineList.length} 款）</button>`:''}
     <div class="detail-row"><span class="detail-key">手機</span><span class="detail-val">${escH(c.phone)||'—'}</span></div>
     ${c.email?`<div class="detail-row"><span class="detail-key">Email</span><span class="detail-val">${escH(c.email)}</span></div>`:''}
     <div class="sec" style="margin:14px 0 8px;">收件方式（${ms.length} 種）</div>
@@ -3454,8 +3272,6 @@ function runCustomerCheck(){
   add('warn','超商／宅配缺門市或地址','選了寄送方式但沒有填門市或地址',cs.filter(c=>customerMethods(c).some(m=>m.type&&m.type!=='門市自取'&&!String(m.detail||'').trim())).map(L));
   add('info','偏好收件方式未列入清單','點「一鍵修正」可補進收件方式清單',cs.filter(c=>(c.shipping||c.shippingDetail)&&!(c.methods||[]).some(m=>(m.type||'')===(c.shipping||'')&&(m.detail||'')===(c.shippingDetail||''))).map(L));
   add('info','沒有任何訂單','可能是舊資料或測試客戶',cs.filter(c=>!customerOrders(c,orders).length).map(L));
-  const lu={}; cs.forEach(c=>{ if(c.lineUserId) (lu[c.lineUserId]=lu[c.lineUserId]||[]).push(c); });
-  add('err','同一個 LINE 綁到多位客戶','推播會不知道該送給誰，請解除其中一位',Object.values(lu).filter(g=>g.length>1).flat().map(L));
   const d=detectCustomerDuplicates(); const nd=d.same.length+d.similar.length+d.contact.length;
   if(nd) res.push({level:'warn',title:`疑似重複客戶 ${nd} 組`,hint:'同名／疑似同名／同收件資料，點下方開啟審核',ids:[],action:['openMergeDuplicateCustomers()','開啟重複客戶審核']});
   const fixable=res.some(r=>r.title==='偏好收件方式未列入清單');
@@ -4100,7 +3916,6 @@ async function boot(){
 }
 // 重新整理後回到原本的頁面（沒權限或頁面不存在就回首頁）
 function restoreLastPage(){
-  updateLineBar();
   let p='home';
   try{ p = localStorage.getItem('bpd_last_page') || 'home'; }catch(e){}
   if(!document.getElementById('page-'+p) || !canAccess(p)) p='home';
