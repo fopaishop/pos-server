@@ -192,6 +192,18 @@ html, body { height: 100%; overflow: hidden; font-family: 'Noto Sans TC', sans-s
 /* FAB */
 .fab { position: absolute; bottom: 80px; right: 16px; width: 52px; height: 52px; border-radius: 50%; background: var(--gold); border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 24px; box-shadow: 0 4px 16px rgba(212,168,67,0.4); z-index: 50; transition: all 0.2s; }
 .fab:active { transform: scale(0.92); }
+/* 全域快速新增（v1.15.0） */
+#quick-fab { position:absolute; right:16px; bottom:calc(22px + env(safe-area-inset-bottom,0px)); z-index:60; display:flex; flex-direction:column; align-items:flex-end; gap:10px; }
+#qf-main { width:56px; height:56px; border-radius:50%; border:none; background:var(--gold); color:#1a0a2e; font-size:30px; line-height:1; cursor:pointer; box-shadow:0 4px 16px rgba(212,168,67,0.5); transition:transform .2s; display:flex; align-items:center; justify-content:center; padding:0 0 3px; }
+#qf-main:active { transform:scale(0.92); }
+#quick-fab.open #qf-main { transform:rotate(45deg); }
+#qf-menu { display:none; flex-direction:column; align-items:flex-end; gap:10px; }
+#quick-fab.open #qf-menu { display:flex; }
+.qf-item { border:none; background:#fff; color:#1a0a2e; font-size:15px; font-weight:600; padding:12px 18px; border-radius:26px; box-shadow:0 4px 14px rgba(26,10,46,0.25); cursor:pointer; white-space:nowrap; animation:qfIn .18s ease-out; }
+.qf-item:active { transform:scale(0.96); }
+@keyframes qfIn { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:none; } }
+#qf-backdrop { display:none; position:absolute; inset:0; z-index:55; background:rgba(10,4,20,0.35); }
+#qf-backdrop.show { display:block; }
 
 /* DIVIDER */
 .divider { height: 1px; background: rgba(26,10,46,0.08); margin: 12px 0; }
@@ -309,6 +321,13 @@ html, body { height: 100%; overflow: hidden; font-family: 'Noto Sans TC', sans-s
     <div class="page" id="page-settings"></div>
   </div>
 
+  <!-- 快速新增 -->
+  <div id="qf-backdrop" onclick="toggleQuickFab(false)"></div>
+  <div id="quick-fab" style="display:none;">
+    <div id="qf-menu"></div>
+    <button id="qf-main" onclick="toggleQuickFab()" aria-label="快速新增">＋</button>
+  </div>
+
   <!-- MODAL -->
   <div class="modal-overlay" id="modal" onclick="closeModal(event)">
     <div class="modal-sheet" id="modal-sheet">
@@ -348,9 +367,11 @@ const SUPABASE_URL = 'https://roxwskdpnsctoaflcomt.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJveHdza2RwbnNjdG9hZmxjb210Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg0Mjk3MDAsImV4cCI6MjEwNDAwNTcwMH0.CflNz8IOx85zo-apNjJkUBISqXYGVpu5-LJ5DDBPyxw';
 const TENANT_ID = 'dbf9fcd3-110a-4dde-8ef9-40c2f89967a9';
 // ===== 版本號：每次更新請遞增，登入頁與設定頁底部都會顯示 =====
-const APP_VERSION = 'v1.14.0';
+const APP_VERSION = 'v1.16.0';
 const APP_BUILD_DATE = '2026-10-30';
 const APP_CHANGELOG = [
+  ['v1.16.0','2026-11-13',['出貨一鍵複製：訂單卡片、訂單詳情、客戶卡片都有「📋 複製收件資料」（姓名＋電話＋門市／地址，三行直接貼）和「📍 只複製地址」兩個按鈕']],
+  ['v1.15.0','2026-11-13',['右下角新增懸浮「＋」快速按鈕：點開可直接「新增訂單」或「新增商品」，在首頁、訂單、商品庫、客戶等頁面都能用（沒有權限的選項不會出現）']],
   ['v1.14.0','2026-11-07',['訂單搜尋可以用「商品」反查：輸入商品名稱、編號、師傅、種類或功效，就會找出買過這個商品的訂單；搜尋時自動跨所有月份，命中的商品會標黃色；多個關鍵字用空格分開（例如：四面神 阿贊）']],
   ['v1.13.0','2026-11-02',['移除 LINE 官方帳號推播功能（推播清單、綁定客戶、推播按鈕）','「複製介紹」改名「複製文案」','修正「複製照片」按鈕失效：改用可跨網域的方式讀取圖片，手機若無法直接複製會自動改開分享選單（可選「拷貝」或「儲存影像」）']],
   ['v1.12.0','2026-11-02',['新增商品：商品照片移到最上方，第一步先放照片','商品庫新增篩選：可依種類篩選（可複選）、一鍵隱藏庫存為 0 的商品，並顯示符合件數，重新整理後仍記得設定']],
@@ -840,6 +861,7 @@ function navigateTo(page){
   try{ localStorage.setItem('bpd_last_page', page); }catch(e){}
   document.getElementById('content').scrollTop = 0;
   renderPage(page);
+  updateQuickFab();
 }
 
 function renderPage(page){
@@ -964,6 +986,10 @@ function orderCardsHTML(filtered){
       <div class="order-info" onclick="openOrderDetail('${o.id}')" style="cursor:pointer;">${o.shipping==='門市自取'?'門市自取':o.shipping+' · '+o.shippingDetail}<br>接單：${o.staff} · 來源：${o.source}</div>
       <div class="order-items-text" onclick="openOrderDetail('${o.id}')" style="cursor:pointer;">${items}${o.gift?' ｜ 贈品：'+o.gift:''}${o.total?' ｜ 總額：$'+o.total.toLocaleString():''}</div>
       ${noGift?'<div class="alert-pill">⚠ 未填佛牌鍊，請確認</div>':''}
+      <div style="display:flex;gap:8px;margin-top:8px;" onclick="event.stopPropagation()">
+        <button class="btn btn-secondary btn-sm" style="flex:1;margin:0;" onclick="copyOrderShip('${o.id}','full',this)">📋 複製收件資料</button>
+        <button class="btn btn-secondary btn-sm" style="flex:1;margin:0;" onclick="copyOrderShip('${o.id}','addr',this)">📍 只複製地址</button>
+      </div>
       ${o.note?`<div style="font-size:12px;color:var(--text3);margin-top:6px;">備註：${o.note}</div>`:''}
       <div style="margin-top:8px;" onclick="event.stopPropagation()">
         <select class="form-select" style="font-size:12px;padding:8px 10px;" onchange="quickUpdateStatus('${o.id}', this.value)">
@@ -1013,6 +1039,10 @@ window.openOrderDetail=function(id){
     <div class="detail-row"><span class="detail-key">收件人</span><span class="detail-val">${o.recipientName||o.customer}</span></div>
     <div class="detail-row"><span class="detail-key">收件人電話</span><span class="detail-val">${o.phone}</span></div>
     <div class="detail-row"><span class="detail-key">寄送方式</span><span class="detail-val">${o.shipping==='門市自取'?'門市自取':o.shipping+' · '+o.shippingDetail}</span></div>
+    <div style="display:flex;gap:8px;margin:8px 0 4px;">
+      <button class="btn btn-secondary btn-sm" style="flex:1;margin:0;" onclick="copyOrderShip('${o.id}','full',this)">📋 複製收件資料</button>
+      <button class="btn btn-secondary btn-sm" style="flex:1;margin:0;" onclick="copyOrderShip('${o.id}','addr',this)">📍 只複製地址</button>
+    </div>
     <div class="detail-row"><span class="detail-key">訂購商品</span><span class="detail-val">${items}</span></div>
     <div class="detail-row"><span class="detail-key">贈品</span><span class="detail-val">${o.gift||'—'}</span></div>
     ${o.total?`
@@ -1788,7 +1818,7 @@ window.toggleMs=function(field){
     if(panel) panel.style.display = (_msOpen === f) ? 'block' : 'none';
     if(btn) btn.classList.toggle('open', _msOpen === f);
   });
-  const fab = document.querySelector('#page-filter .fab'); if(fab) fab.style.display = _msOpen ? 'none' : ''; // 下拉展開時先收起右下角 ＋，避免蓋住「完成」
+  updateQuickFab(); // 下拉展開時先收起右下角 ＋，避免蓋住「完成」
   if(_msOpen){ const w = document.getElementById('ms-'+_msOpen); if(w && w.scrollIntoView) setTimeout(()=>w.scrollIntoView({block:'nearest', behavior:'smooth'}), 50); }
 }
 window.toggleMsOpt=function(field, i, checked){
@@ -1847,7 +1877,7 @@ function renderFilter(){
     <button class="btn btn-secondary" style="width:100%;margin-top:8px;" onclick="clearFilter()">清除條件</button>
     <div id="filter-results" style="margin-top:16px;">${filterResultsHTML()}</div>
     <div style="height:80px;"></div>
-    <button class="fab" style="${_msOpen?'display:none;':''}" onclick="openNewProduct()">＋</button>`;
+`;
 }
 
 // 預算快速設定條：每格 5,000 元，0～10 萬；最右邊＝10 萬以上（不設上限）。手動輸入欄位不受 10 萬限制
@@ -2364,7 +2394,7 @@ function renderProducts(){
     <div style="font-size:11px;color:var(--text3);margin:6px 2px 8px;">💡 商品往左滑可以刪除；點進商品可直接修改各欄位</div>
     <div id="products-list">${productCardsHTML(products)}</div>
     <div style="height:80px;"></div>
-    <button class="fab" onclick="openNewProduct()">＋</button>`;
+`;
 }
 function filteredProductsForList(){
   return getProducts().filter(productPass);
@@ -2516,6 +2546,28 @@ window.setStock=function(id,v){
 }
 
 // ---- 新增商品 ----
+// ============ 右下角快速新增 ============
+function updateQuickFab(){
+  const fab=document.getElementById('quick-fab'); if(!fab) return;
+  const items=[];
+  if(canAccess('new-order')) items.push(['order','📝 新增訂單']);
+  if(canAccess('products')) items.push(['product','📦 新增商品']);
+  const hide = !items.length || currentPage==='new-order' || currentPage==='settings' || (currentPage==='filter' && typeof _msOpen!=='undefined' && _msOpen);
+  fab.style.display = hide ? 'none' : 'flex';
+  document.getElementById('qf-menu').innerHTML = items.map(([k,l])=>`<button class="qf-item" onclick="quickAdd('${k}')">${l}</button>`).join('');
+  if(hide) toggleQuickFab(false);
+}
+window.toggleQuickFab=function(force){
+  const fab=document.getElementById('quick-fab'); if(!fab) return;
+  const open = typeof force==='boolean' ? force : !fab.classList.contains('open');
+  fab.classList.toggle('open',open);
+  document.getElementById('qf-backdrop').classList.toggle('show',open);
+}
+window.quickAdd=function(kind){
+  toggleQuickFab(false);
+  if(kind==='order') navigateTo('new-order');
+  else if(kind==='product'){ if(!canAccess('products')){ toast('⚠ 你的身份沒有這個權限'); return; } openNewProduct(); }
+}
 window.openNewProduct=function(){
   const masters=mastersByFreq(), cats=getList('cats'), effs=getList('effects');
   _photoSlots = []; window._npEffTouched = false; window._npCodeManual = false;
@@ -2772,7 +2824,7 @@ window.saveNewProduct=async function(){
   await pushProductToCloud(newProduct);
   await logActivity('新增商品', `${newProduct.name}（${code}）`);
 
-  _closeModal(); toast('✅ 商品建檔成功！'+(CLOUD_ENABLED?'（已同步雲端）':'')); renderPage('products');
+  _closeModal(); toast('✅ 商品建檔成功！'+(CLOUD_ENABLED?'（已同步雲端）':'')); renderPage('products'); if(currentPage!=='products') renderPage(currentPage);
 }
 
 // ============ 批量匯入商品 (Excel/CSV) ============
@@ -2931,6 +2983,10 @@ function customerCardsHTML(customers, orders){
             ${mHTML}
           </div>
         </div>
+        ${customerSelectMode?'':`<div style="display:flex;gap:8px;margin:0 0 10px;" onclick="event.stopPropagation()">
+          <button class="btn btn-secondary btn-sm" style="flex:1;margin:0;" onclick="copyCustShip('${c.id}','full',this)">📋 複製收件資料</button>
+          <button class="btn btn-secondary btn-sm" style="flex:1;margin:0;" onclick="copyCustShip('${c.id}','addr',this)">📍 只複製地址</button>
+        </div>`}
         <div style="display:flex;gap:0;">
           <div class="customer-stat" style="flex:1;border-right:1px solid rgba(26,10,46,0.08);">
             <div class="customer-stat-val">${cOrders.length}</div>
@@ -3505,6 +3561,38 @@ window.mergeCustomerGroup=async function(name){
   await logActivity('合併同名客戶', `${name}（${group.length}筆合併為1筆）`);
   toast(`✅ 已合併「${name}」的 ${group.length} 筆資料`);
   openMergeDuplicateCustomers();
+}
+// ---- 出貨用：一鍵複製收件資料 ----
+async function copyPlain(text, btn, doneText){
+  let ok=false;
+  try{ await navigator.clipboard.writeText(text); ok=true; }catch(e){
+    try{ const ta=document.createElement('textarea'); ta.value=text; ta.style.cssText='position:fixed;top:0;left:0;opacity:0;'; document.body.appendChild(ta); ta.focus(); ta.select(); ta.setSelectionRange(0,text.length); ok=document.execCommand('copy'); ta.remove(); }catch(e2){}
+  }
+  if(ok){
+    if(btn){ const o=btn.dataset.o||btn.textContent; btn.dataset.o=o; btn.textContent=doneText||'✅ 已複製'; setTimeout(()=>{ btn.textContent=o; },1600); }
+    else toast('✅ 已複製');
+  } else alert('複製失敗，請手動選取：\n\n'+text);
+}
+function shipCopyText(p, mode){
+  const t=p.type||'', d=String(p.detail||'').trim();
+  const isStore = t==='711'||t==='全家'||t==='萊爾富'||t==='OK';
+  const where = t==='門市自取' ? '門市自取' : (isStore ? `${t==='711'?'7-11':t} ${d}${d&&!/門市$/.test(d)?'門市':''}` : d);
+  if(mode==='addr') return t==='門市自取' ? '門市自取' : (isStore ? d : d);
+  return [p.name||'', p.phone||'', where].filter(x=>String(x).trim()).join('\n');
+}
+window.copyOrderShip=function(id, mode, btn){
+  const o=getOrders().find(x=>x.id===id); if(!o) return;
+  const txt=shipCopyText({name:o.recipientName||o.customer, phone:o.phone, type:o.shipping, detail:o.shippingDetail}, mode);
+  if(!txt.trim()||txt==='門市自取'&&mode==='addr'){ toast('⚠ 這筆訂單沒有地址／門市資料'); return; }
+  copyPlain(txt, btn);
+}
+window.copyCustShip=function(id, mode, btn){
+  const c=getCustomers().find(x=>x.id===id); if(!c) return;
+  const ms=customerMethods(c);
+  const m = ms[Math.max(0,ms.findIndex((x,i)=>isPrefMethod(c,x,i)))] || {type:c.shipping||'',detail:c.shippingDetail||''};
+  const txt=shipCopyText({name:m.recipient||c.realName||c.name, phone:m.phone||c.phone, type:m.type, detail:m.detail}, mode);
+  if(!String(m.detail||'').trim()&&mode==='addr'){ toast('⚠ 這位客戶還沒有地址／門市資料'); return; }
+  copyPlain(txt, btn);
 }
 window.copyCustomerShipping=async function(id, btn, idx){
   const c=getCustomers().find(x=>x.id===id); if(!c) return;
