@@ -348,9 +348,10 @@ const SUPABASE_URL = 'https://roxwskdpnsctoaflcomt.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJveHdza2RwbnNjdG9hZmxjb210Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg0Mjk3MDAsImV4cCI6MjEwNDAwNTcwMH0.CflNz8IOx85zo-apNjJkUBISqXYGVpu5-LJ5DDBPyxw';
 const TENANT_ID = 'dbf9fcd3-110a-4dde-8ef9-40c2f89967a9';
 // ===== 版本號：每次更新請遞增，登入頁與設定頁底部都會顯示 =====
-const APP_VERSION = 'v1.13.0';
+const APP_VERSION = 'v1.14.0';
 const APP_BUILD_DATE = '2026-10-30';
 const APP_CHANGELOG = [
+  ['v1.14.0','2026-11-07',['訂單搜尋可以用「商品」反查：輸入商品名稱、編號、師傅、種類或功效，就會找出買過這個商品的訂單；搜尋時自動跨所有月份，命中的商品會標黃色；多個關鍵字用空格分開（例如：四面神 阿贊）']],
   ['v1.13.0','2026-11-02',['移除 LINE 官方帳號推播功能（推播清單、綁定客戶、推播按鈕）','「複製介紹」改名「複製文案」','修正「複製照片」按鈕失效：改用可跨網域的方式讀取圖片，手機若無法直接複製會自動改開分享選單（可選「拷貝」或「儲存影像」）']],
   ['v1.12.0','2026-11-02',['新增商品：商品照片移到最上方，第一步先放照片','商品庫新增篩選：可依種類篩選（可複選）、一鍵隱藏庫存為 0 的商品，並顯示符合件數，重新整理後仍記得設定']],
   ['v1.11.0','2026-11-02',['客戶頁、訂單頁各新增「🩺 檢查」按鈕：一鍵檢查資料問題（缺手機、格式異常、重複編號、商品已刪除、金額為 0、客戶對不上…），點問題可直接開啟該筆處理；可一鍵補建缺少的客戶']],
@@ -922,18 +923,38 @@ function renderHome(){
 let orderFilter = '全部';
 let orderSearch = '';
 let orderMonthFilter = new Date().toISOString().slice(0,7); // 預設只顯示當月訂單，空字串代表「全部月份」
+// 訂單可搜尋的文字：訂單、客戶、電話、收件人、備註，以及商品名稱／編號／師傅／種類／功效
+function orderItemHay(it){
+  if(it.custom) return String(it.name||'');
+  const p=getProductById(it.productId);
+  return p ? [p.name,p.code,p.master,p.category,p.type,(p.effects||[]).join(' ')].join(' ') : String(it.productId||'');
+}
+function orderSearchTokens(){ return String(orderSearch||'').toLowerCase().split(/\s+/).filter(Boolean); }
+function orderMatchesSearch(o,tokens){
+  const base=[o.customer,o.id,o.phone,o.recipientName,o.note,o.gift,o.shippingDetail].join(' ').toLowerCase();
+  const items=(o.items||[]).map(orderItemHay).join(' ').toLowerCase();
+  const hay=base+' '+items;
+  return tokens.every(t=>hay.includes(t));
+}
 function getFilteredOrders(){
   const orders = getOrders();
   let filtered = orders;
-  if(orderMonthFilter) filtered = filtered.filter(o=>o.date && o.date.startsWith(orderMonthFilter));
+  const tokens = orderSearchTokens();
+  // 有輸入搜尋時，跨所有月份找（否則買過的商品在別的月份就找不到）
+  if(orderMonthFilter && !tokens.length) filtered = filtered.filter(o=>o.date && o.date.startsWith(orderMonthFilter));
   if(orderFilter!=='全部') filtered = filtered.filter(o=>o.status===orderFilter);
-  if(orderSearch) filtered = filtered.filter(o=>o.customer.includes(orderSearch)||o.id.includes(orderSearch)||o.phone.includes(orderSearch)||(o.recipientName||'').includes(orderSearch));
+  if(tokens.length) filtered = filtered.filter(o=>orderMatchesSearch(o,tokens));
   return filtered;
 }
 function orderCardsHTML(filtered){
   const quickStatusOpts = STATUS_LIST.filter(s=>s!=='全部');
   const cards = filtered.map(o=>{
-    const items = o.items.map(it=>`${itemName(it)} ×${it.qty}`).join('、');
+    const tk = orderSearchTokens();
+    const items = o.items.map(it=>{
+      const t=`${itemName(it)} ×${it.qty}`;
+      const hit = tk.length && tk.some(k=>orderItemHay(it).toLowerCase().includes(k));
+      return hit ? `<mark style="background:#fff0a8;border-radius:3px;padding:0 2px;">${t}</mark>` : t;
+    }).join('、');
     const noGift = !['已寄出','取消','退貨'].includes(o.status) && o.items.some(it=>!['手鍊','符管','周邊聖物'].includes(itemCategory(it))) && !o.gift;
     return `<div class="order-card">
       <div class="order-head" onclick="openOrderDetail('${o.id}')" style="cursor:pointer;">
@@ -951,7 +972,9 @@ function orderCardsHTML(filtered){
       </div>
     </div>`;
   }).join('');
-  return cards || '<div class="empty-state"><div class="emoji">📋</div><p>無符合訂單</p></div>';
+  const tkn = orderSearchTokens();
+  const banner = tkn.length ? `<div style="font-size:12px;color:var(--text2);margin:0 2px 8px;">🔎 搜尋「${escH(orderSearch)}」：找到 ${filtered.length} 張訂單（已跨所有月份，可搜商品名稱、編號、師傅、客戶、電話）</div>` : '';
+  return banner + (cards || '<div class="empty-state"><div class="emoji">📋</div><p>無符合訂單</p></div>');
 }
 function renderOrders(){
   const orders = getOrders();
@@ -961,7 +984,7 @@ function renderOrders(){
 
   return `
     <div style="display:flex;gap:8px;align-items:center;">
-      <div class="search-bar" style="flex:1;"><span class="search-icon">🔍</span><input type="text" placeholder="搜尋訂單、客戶、電話..." id="order-search" value="${orderSearch}" oninput="setOrderSearch(this.value)" style="padding-right:34px;"><span class="search-clear" id="order-search-clear" style="display:${orderSearch?'flex':'none'};" onclick="document.getElementById('order-search').value='';setOrderSearch('');">✕</span></div>
+      <div class="search-bar" style="flex:1;"><span class="search-icon">🔍</span><input type="text" placeholder="搜尋訂單、客戶、電話、商品..." id="order-search" value="${orderSearch}" oninput="setOrderSearch(this.value)" style="padding-right:34px;"><span class="search-clear" id="order-search-clear" style="display:${orderSearch?'flex':'none'};" onclick="document.getElementById('order-search').value='';setOrderSearch('');">✕</span></div>
       <button class="topbar-btn" style="background:rgba(26,10,46,0.08);flex-shrink:0;" onclick="refreshOrdersFromCloud()" title="同步雲端最新資料">🔄</button>
       <button class="topbar-btn" style="background:rgba(26,10,46,0.08);flex-shrink:0;width:auto;padding:0 10px;font-size:12px;" onclick="exportOrdersExcel()" title="匯出Excel">📊 匯出</button>
     </div>
