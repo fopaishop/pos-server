@@ -367,9 +367,10 @@ const SUPABASE_URL = 'https://roxwskdpnsctoaflcomt.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJveHdza2RwbnNjdG9hZmxjb210Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg0Mjk3MDAsImV4cCI6MjEwNDAwNTcwMH0.CflNz8IOx85zo-apNjJkUBISqXYGVpu5-LJ5DDBPyxw';
 const TENANT_ID = 'dbf9fcd3-110a-4dde-8ef9-40c2f89967a9';
 // ===== 版本號：每次更新請遞增，登入頁與設定頁底部都會顯示 =====
-const APP_VERSION = 'v1.18.0';
+const APP_VERSION = 'v1.19.0';
 const APP_BUILD_DATE = '2026-10-30';
 const APP_CHANGELOG = [
+  ['v1.19.0','2026-11-15',['修正建立訂單填到一半會被清空：新增商品、改數量、切換寄送方式時，已填的暱稱、電話、門市、備註都會保留；離開頁面或重新整理也會保留草稿，送出後才清空','建立／編輯訂單可直接修改每項商品的成交單價（報價調整），改過的會顯示原價；訂單會記住當下的成交價，之後商品改價不影響舊訂單']],
   ['v1.18.0','2026-11-13',['建立訂單：客戶名稱一邊輸入，底下就即時列出配對的客戶（完全相同的排最前面、再來是開頭相同、常下單的），名字後面用灰色小字顯示手機和常用門市／地址，同名客戶一眼就分得出來，點一下直接帶入']],
   ['v1.17.0','2026-11-13',['建立／編輯訂單的「接單人員」改成自動讀取帳號管理裡「啟用中」的人員名單（新增、停用、改暱稱都會跟著更新），登入者預設排第一個','設定新增「接單人員（外部經銷／無帳號）」：可新增沒有系統帳號的外部經銷人員，也能出現在接單人員選單，會同步到雲端；顯示每位人員的訂單數']],
   ['v1.16.0','2026-11-13',['出貨一鍵複製：訂單卡片、訂單詳情、客戶卡片都有「📋 複製收件資料」（姓名＋電話＋門市／地址，三行直接貼）和「📍 只複製地址」兩個按鈕']],
@@ -596,7 +597,7 @@ async function syncStaffNames(){
 function getProductById(id){ return getProducts().find(p=>p.id===id)||null; }
 function getProductName(id){ const p=getProductById(id); return p?p.name:id; }
 function itemName(it){ return it.custom ? it.name : getProductName(it.productId); }
-function itemPrice(it){ if(it.custom) return it.price||0; const p=getProductById(it.productId); return p?p.price:0; }
+function itemPrice(it){ if(it.price!=null && it.price!=='' && !isNaN(it.price)) return Number(it.price); if(it.custom) return 0; const p=getProductById(it.productId); return p?p.price:0; }
 function itemLineTotal(it){ return itemPrice(it)*(it.qty||0); }
 function itemCategory(it){ if(it.custom) return '其他'; const p=getProductById(it.productId); return p?p.category:''; }
 
@@ -1211,7 +1212,7 @@ function renderEditOrderModal(id){
     <div style="display:flex;align-items:center;gap:8px;padding:8px;background:var(--surface);border-radius:8px;margin-bottom:6px;">
       <div style="flex:1;">
         <div style="font-size:13px;">${sp.name}${sp.custom?' <span style="color:var(--text3);font-size:11px;">（手動輸入）</span>':''}</div>
-        <div style="font-size:12px;color:var(--text3);">$${sp.price.toLocaleString()} × ${sp.qty} = $${(sp.price*sp.qty).toLocaleString()}</div>
+        ${_priceRowHTML(sp,i,'eo',id)}
       </div>
       <div style="display:flex;align-items:center;gap:6px;">
         <button onclick="editOrderChangeQty(${i},-1,'${id}')" style="width:26px;height:26px;border-radius:50%;border:1px solid rgba(26,10,46,0.2);background:var(--white);">−</button>
@@ -1312,7 +1313,7 @@ window.saveEditOrder=async function(id){
   if(!_editOrderItems.length){ toast('⚠ 至少需要一項商品'); return; }
   const { subtotal, shippingFee, total } = editOrderSummary(shipping);
 
-  const newItems = _editOrderItems.map(sp=>sp.custom?{custom:true,name:sp.name,price:sp.price,qty:sp.qty}:{productId:sp.id,qty:sp.qty});
+  const newItems = _editOrderItems.map(sp=>sp.custom?{custom:true,name:sp.name,price:sp.price,qty:sp.qty}:{productId:sp.id,qty:sp.qty,price:Number(sp.price)||0});
 
   // 調整庫存差異：舊訂單商品先「還原」，新訂單商品再「扣除」
   const products = getProducts();
@@ -1356,6 +1357,55 @@ window.updateOrderStatus=async function(id){
 let newOrder = { customer:'', recipientName:'', phone:'', shipping:'', shippingDetail:'', items:[], gift:'', staff:'', source:'', note:'' };
 let selectedProducts = [];
 let forceFreeShipping = false;
+// 建立訂單草稿：任何重繪前先把畫面上已填的內容存回 newOrder，避免「填一填被清空」；並存到本機，重新整理也不會不見
+(function(){ try{ const d=JSON.parse(localStorage.getItem('bpd_order_draft')||'null'); if(d&&d.newOrder){ newOrder=Object.assign(newOrder,d.newOrder); selectedProducts=d.selectedProducts||[]; forceFreeShipping=!!d.forceFree; } }catch(e){} })();
+function captureNewOrderForm(){
+  const v=id=>{ const el=document.getElementById(id); return el ? el.value : null; };
+  if(v('no-customer')===null) return;
+  const map={customer:'no-customer',recipientName:'no-recipient',phone:'no-phone',shipping:'no-shipping',shippingDetail:'no-ship-detail',gift:'no-gift',staff:'no-staff',status:'no-status',note:'no-note'};
+  Object.entries(map).forEach(([k,id])=>{ const x=v(id); if(x!==null) newOrder[k]=x; });
+}
+function saveOrderDraft(){
+  try{
+    const empty=!selectedProducts.length && !['customer','recipientName','phone','shippingDetail','note'].some(k=>String(newOrder[k]||'').trim());
+    if(empty) localStorage.removeItem('bpd_order_draft');
+    else localStorage.setItem('bpd_order_draft', JSON.stringify({newOrder, selectedProducts, forceFree:forceFreeShipping}));
+  }catch(e){}
+}
+function clearOrderDraft(){ try{ localStorage.removeItem('bpd_order_draft'); }catch(e){} const pg=document.getElementById('page-new-order'); if(pg) pg.innerHTML=''; /* 清掉舊畫面，避免下次重繪又把舊內容讀回來 */ }
+['input','change'].forEach(evt=>document.addEventListener(evt, e=>{ if(e.target && e.target.closest && e.target.closest('#page-new-order')){ captureNewOrderForm(); saveOrderDraft(); } }));
+window.clearNewOrderForm=function(){
+  if(!confirm('確定要清空目前填寫的訂單內容？')) return;
+  selectedProducts=[]; forceFreeShipping=false;
+  newOrder={ customer:'',recipientName:'',phone:'',shipping:'',shippingDetail:'',items:[],gift:'',staff:'',source:'',note:'' };
+  clearOrderDraft(); renderPage('new-order');
+}
+// 成交單價（報價調整）
+function _priceRowHTML(sp, i, kind, oid){
+  const p = sp.custom ? null : getProductById(sp.id);
+  const orig = p ? p.price : null;
+  const changed = orig!=null && Number(sp.price)!==Number(orig);
+  const handler = kind==='no' ? `oninput="setNoItemPrice(${i},this.value)"` : `onchange="setEoItemPrice(${i},this.value,'${oid}')"`;
+  return `<div style="font-size:12px;color:var(--text3);display:flex;align-items:center;gap:4px;flex-wrap:wrap;margin-top:3px;">
+      單價 $<input type="number" inputmode="numeric" min="0" value="${Number(sp.price)||0}" ${handler} onclick="this.select()" style="width:84px;padding:4px 6px;border:1px solid rgba(26,10,46,0.25);border-radius:6px;font-size:13px;background:var(--white);">
+      × ${sp.qty} = $<span id="${kind}-line-${i}">${((Number(sp.price)||0)*sp.qty).toLocaleString()}</span>
+      <span id="${kind}-orig-${i}" style="color:#c0392b;">${changed?`（原價 $${orig.toLocaleString()}）`:''}</span>
+    </div>`;
+}
+window.setNoItemPrice=function(i,v){
+  const sp=selectedProducts[i]; if(!sp) return;
+  sp.price=Math.max(0,parseInt(v)||0);
+  const l=document.getElementById('no-line-'+i); if(l) l.textContent=(sp.price*sp.qty).toLocaleString();
+  const p=sp.custom?null:getProductById(sp.id), o=document.getElementById('no-orig-'+i);
+  if(o) o.textContent = p && p.price!==sp.price ? `（原價 $${p.price.toLocaleString()}）` : '';
+  refreshOrderSummary(); saveOrderDraft();
+}
+window.setEoItemPrice=function(i,v,id){
+  captureEditOrderDraft();
+  const sp=_editOrderItems[i]; if(!sp) return;
+  sp.price=Math.max(0,parseInt(v)||0);
+  renderEditOrderModal(id);
+}
 
 function computeOrderSummary(){
   const subtotal = selectedProducts.reduce((s,p)=>s+p.price*p.qty, 0);
@@ -1388,8 +1438,10 @@ window.refreshOrderSummary=function(){
 }
 
 function renderNewOrder(){
+  captureNewOrderForm(); saveOrderDraft();
   const staff = getStaff();
-  const staffOpts = staff.map(s=>`<option>${escH(s)}</option>`).join('');
+  if(newOrder.staff && !staff.includes(newOrder.staff)) staff.push(newOrder.staff);
+  const staffOpts = staff.map(s=>`<option${newOrder.staff===s?' selected':''}>${escH(s)}</option>`).join('');
   const srcChips = SOURCE_LIST.map(s=>`<span class="chip${newOrder.source===s?' on':''}" onclick="setOrderField('source','${s}',this)">${s}</span>`).join('');
   const shipOpts = SHIP_LIST.map(s=>`<option${newOrder.shipping===s?' selected':''}>${s}</option>`).join('');
   const giftOpts = ['','佛牌鍊（標準）','佛牌鍊（金色）','佛牌鍊（銀色）','佛牌鍊（黑色）','不附贈'].map(g=>`<option${newOrder.gift===g?' selected':''}>${g}</option>`).join('');
@@ -1398,7 +1450,7 @@ function renderNewOrder(){
     <div style="display:flex;align-items:center;gap:8px;padding:8px;background:var(--surface);border-radius:8px;margin-bottom:6px;">
       <div style="flex:1;">
         <div style="font-size:13px;">${sp.name}${sp.custom?' <span style="color:var(--text3);font-size:11px;">（手動輸入）</span>':''}</div>
-        <div style="font-size:12px;color:var(--text3);">$${sp.price.toLocaleString()} × ${sp.qty} = $${(sp.price*sp.qty).toLocaleString()}</div>
+        ${_priceRowHTML(sp,i,'no')}
       </div>
       <div style="display:flex;align-items:center;gap:6px;">
         <button onclick="changeQty(${i},-1)" style="width:28px;height:28px;border-radius:50%;border:1px solid rgba(26,10,46,0.2);background:var(--white);cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center;">−</button>
@@ -1412,18 +1464,18 @@ function renderNewOrder(){
     <div class="form-block">
       <label class="form-label">訂購人姓名（暱稱）</label>
       <div style="display:flex;gap:8px;">
-        <input class="form-input" id="no-customer" type="text" value="${newOrder.customer}" placeholder="輸入暱稱、真名或手機，底下會即時配對..." oninput="searchCustomer(this.value)" oncompositionend="searchCustomer(this.value)" autocomplete="off" style="flex:1;">
+        <input class="form-input" id="no-customer" type="text" value="${escA(newOrder.customer||'')}" placeholder="輸入暱稱、真名或手機，底下會即時配對..." oninput="searchCustomer(this.value)" oncompositionend="searchCustomer(this.value)" autocomplete="off" style="flex:1;">
         <button class="btn btn-secondary btn-sm" style="width:auto;margin:0;padding:0 14px;" onclick="openCustomerQuickPick()">▼ 選擇</button>
       </div>
       <div id="customer-suggestions"></div>
     </div>
     <div class="form-block">
       <label class="form-label">收件人姓名</label>
-      <input class="form-input" id="no-recipient" type="text" value="${newOrder.recipientName}" placeholder="若與訂購人相同可留空">
+      <input class="form-input" id="no-recipient" type="text" value="${escA(newOrder.recipientName||'')}" placeholder="若與訂購人相同可留空">
     </div>
     <div class="form-block">
       <label class="form-label">收件人電話</label>
-      <input class="form-input" id="no-phone" type="tel" value="${newOrder.phone}" placeholder="09XX-XXX-XXX" onblur="autofillByPhone(this.value)">
+      <input class="form-input" id="no-phone" type="tel" value="${escA(newOrder.phone||'')}" placeholder="09XX-XXX-XXX" onblur="autofillByPhone(this.value)">
     </div>
     <div class="form-block">
       <label class="form-label">寄送方式</label>
@@ -1431,7 +1483,7 @@ function renderNewOrder(){
     </div>
     <div class="form-block" id="ship-detail-block" style="${newOrder.shipping==='門市自取'||!newOrder.shipping?'display:none':''}">
       <label class="form-label" id="ship-detail-label">${newOrder.shipping==='711'?'711門市名稱':'宅配地址'}</label>
-      <input class="form-input" id="no-ship-detail" type="text" value="${newOrder.shippingDetail}" placeholder="${newOrder.shipping==='711'?'例：全家信義店':'完整收件地址'}">
+      <input class="form-input" id="no-ship-detail" type="text" value="${escA(newOrder.shippingDetail||'')}" placeholder="${newOrder.shipping==='711'?'例：全家信義店':'完整收件地址'}">
     </div>
     <div class="form-block">
       <label class="form-label">訂購商品</label>
@@ -1457,9 +1509,10 @@ function renderNewOrder(){
     </div>
     <div class="form-block">
       <label class="form-label">備註</label>
-      <textarea class="form-textarea" id="no-note" rows="2" placeholder="特殊需求、注意事項...">${newOrder.note}</textarea>
+      <textarea class="form-textarea" id="no-note" rows="2" placeholder="特殊需求、注意事項...">${escH(newOrder.note||'')}</textarea>
     </div>
     <button class="btn btn-gold" onclick="submitOrder()">確認建立訂單 ✓</button>
+    <button class="btn btn-secondary btn-sm" style="width:100%;margin-top:8px;" onclick="clearNewOrderForm()">清空重填</button>
     <div style="height:40px;"></div>`;
 }
 
@@ -1693,7 +1746,7 @@ window.finalizeSubmitOrder=async function(forceFreeOverride){
     date:new Date().toISOString().slice(0,10),
     customer, recipientName: recipientName||customer, phone,shipping,
     shippingDetail:document.getElementById('no-ship-detail')?.value||'',
-    items:selectedProducts.map(p=>p.custom?{custom:true,name:p.name,price:p.price,qty:p.qty}:{productId:p.id,qty:p.qty}),
+    items:selectedProducts.map(p=>p.custom?{custom:true,name:p.name,price:p.price,qty:p.qty}:{productId:p.id,qty:p.qty,price:Number(p.price)||0}),
     gift,
     staff:document.getElementById('no-staff')?.value||getStaff()[0],
     source:newOrder.source||'門市',
@@ -1747,6 +1800,7 @@ window.finalizeSubmitOrder=async function(forceFreeOverride){
   selectedProducts=[];
   forceFreeShipping=false;
   newOrder={ customer:'',recipientName:'',phone:'',shipping:'',shippingDetail:'',items:[],gift:'',staff:'',source:'',note:'' };
+  clearOrderDraft();
   
   if(hasBuddha&&!gift) toast('⚠ 訂單建立！注意：未填佛牌鍊');
   else toast('✅ 訂單 #'+newId+' 建立成功！');
