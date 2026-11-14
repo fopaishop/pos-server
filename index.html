@@ -367,9 +367,11 @@ const SUPABASE_URL = 'https://roxwskdpnsctoaflcomt.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJveHdza2RwbnNjdG9hZmxjb210Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg0Mjk3MDAsImV4cCI6MjEwNDAwNTcwMH0.CflNz8IOx85zo-apNjJkUBISqXYGVpu5-LJ5DDBPyxw';
 const TENANT_ID = 'dbf9fcd3-110a-4dde-8ef9-40c2f89967a9';
 // ===== 版本號：每次更新請遞增，登入頁與設定頁底部都會顯示 =====
-const APP_VERSION = 'v1.16.0';
+const APP_VERSION = 'v1.18.0';
 const APP_BUILD_DATE = '2026-10-30';
 const APP_CHANGELOG = [
+  ['v1.18.0','2026-11-13',['建立訂單：客戶名稱一邊輸入，底下就即時列出配對的客戶（完全相同的排最前面、再來是開頭相同、常下單的），名字後面用灰色小字顯示手機和常用門市／地址，同名客戶一眼就分得出來，點一下直接帶入']],
+  ['v1.17.0','2026-11-13',['建立／編輯訂單的「接單人員」改成自動讀取帳號管理裡「啟用中」的人員名單（新增、停用、改暱稱都會跟著更新），登入者預設排第一個','設定新增「接單人員（外部經銷／無帳號）」：可新增沒有系統帳號的外部經銷人員，也能出現在接單人員選單，會同步到雲端；顯示每位人員的訂單數']],
   ['v1.16.0','2026-11-13',['出貨一鍵複製：訂單卡片、訂單詳情、客戶卡片都有「📋 複製收件資料」（姓名＋電話＋門市／地址，三行直接貼）和「📍 只複製地址」兩個按鈕']],
   ['v1.15.0','2026-11-13',['右下角新增懸浮「＋」快速按鈕：點開可直接「新增訂單」或「新增商品」，在首頁、訂單、商品庫、客戶等頁面都能用（沒有權限的選項不會出現）']],
   ['v1.14.0','2026-11-07',['訂單搜尋可以用「商品」反查：輸入商品名稱、編號、師傅、種類或功效，就會找出買過這個商品的訂單；搜尋時自動跨所有月份，命中的商品會標黃色；多個關鍵字用空格分開（例如：四面神 阿贊）']],
@@ -400,8 +402,9 @@ let PERMISSIONS = load('permissions') || DEFAULT_PERMISSIONS;
 let CONFIG = load('config') || { catEffects:{}, catPrefix:{} };
 if(!CONFIG.catEffects) CONFIG.catEffects = {};
 if(!CONFIG.catPrefix) CONFIG.catPrefix = {};
+if(!Array.isArray(CONFIG.extraStaff)) CONFIG.extraStaff = [];
 let _configSyncOk = null; // null=還沒試過  true=已同步  false=雲端沒有 config 欄位或寫入失敗
-function configPayload(){ return { cats:getList('cats'), effects:getList('effects'), masters:getList('masters'), catEffects:CONFIG.catEffects, catPrefix:CONFIG.catPrefix }; }
+function configPayload(){ return { cats:getList('cats'), effects:getList('effects'), masters:getList('masters'), catEffects:CONFIG.catEffects, catPrefix:CONFIG.catPrefix, extraStaff:CONFIG.extraStaff||[] }; }
 async function pushConfigToCloud(){
   save('config', CONFIG);
   if(!CLOUD_ENABLED) return;
@@ -421,7 +424,7 @@ async function syncConfigFromCloud(){
       if(c.cats) save('cats', c.cats);
       if(c.effects) save('effects', c.effects);
       if(c.masters) save('masters', c.masters);
-      CONFIG = { catEffects:c.catEffects||{}, catPrefix:c.catPrefix||{} };
+      CONFIG = { catEffects:c.catEffects||{}, catPrefix:c.catPrefix||{}, extraStaff:Array.isArray(c.extraStaff)?c.extraStaff:(CONFIG.extraStaff||[]) };
       save('config', CONFIG);
       _configSyncOk = true;
     } else {
@@ -526,7 +529,7 @@ window.migrateLocalToCloud=async function(){
 
 async function syncAllFromCloud(){
   if(!CLOUD_ENABLED) return;
-  await Promise.all([syncProductsFromCloud(), syncOrdersFromCloud(), syncCustomersFromCloud(), syncPermissionsFromCloud(), syncConfigFromCloud()]);
+  await Promise.all([syncProductsFromCloud(), syncOrdersFromCloud(), syncCustomersFromCloud(), syncPermissionsFromCloud(), syncConfigFromCloud(), syncStaffNames()]);
 }
 
 // ---- 權限設定 ----
@@ -572,7 +575,23 @@ function initDB() {
 function getProducts(){ return load('products')||[]; }
 function getOrders(){ return load('orders')||[]; }
 function getCustomers(){ return load('customers')||[]; }
-function getStaff(){ return load('staff')||[]; }
+// 接單人員 = 登入者 + 帳號管理裡「啟用中」的人員（自動）+ 設定裡手動新增的外部經銷／無帳號人員
+function getStaff(){
+  const prof = load('staff_profiles')||[];
+  const extra = (CONFIG.extraStaff||[]);
+  const legacy = !CLOUD_ENABLED ? (load('staff')||[]) : [];
+  const out=[], seen=new Set();
+  [currentProfile&&currentProfile.name, ...prof, ...extra, ...legacy].forEach(n=>{ n=String(n||'').trim(); if(n&&!seen.has(n)){ seen.add(n); out.push(n); } });
+  return out;
+}
+async function syncStaffNames(){
+  if(!CLOUD_ENABLED || !sb) return;
+  try{
+    const { data, error } = await sb.from('profiles').select('name,active').eq('tenant_id', TENANT_ID).order('created_at');
+    if(error) throw error;
+    save('staff_profiles', (data||[]).filter(a=>a.active!==false).map(a=>a.name).filter(Boolean));
+  }catch(e){ console.warn('讀取接單人員名單失敗', e); }
+}
 
 function getProductById(id){ return getProducts().find(p=>p.id===id)||null; }
 function getProductName(id){ const p=getProductById(id); return p?p.name:id; }
@@ -1227,7 +1246,7 @@ function renderEditOrderModal(id){
       ${shipping!=='門市自取'?`<button class="btn ${_editForceFree?'btn-gold':'btn-secondary'} btn-sm" style="width:100%;margin-top:8px;" onclick="toggleEditForceFree('${id}')">${_editForceFree?'✓ 已強制免運':'強制免運'}</button>`:''}
     </div>
     <div class="form-block"><label class="form-label">贈品</label><input class="form-input" id="eo-gift" value="${d.gift}"></div>
-    <div class="form-block"><label class="form-label">接單人員</label><select class="form-select" id="eo-staff">${staff.map(s=>`<option${d.staff===s?' selected':''}>${s}</option>`).join('')}</select></div>
+    <div class="form-block"><label class="form-label">接單人員</label><select class="form-select" id="eo-staff">${[...new Set([...(d.staff?[d.staff]:[]),...staff])].map(s=>`<option${d.staff===s?' selected':''}>${escH(s)}</option>`).join('')}</select></div>
     <div class="form-block"><label class="form-label">訂單進度</label><select class="form-select" id="eo-status">${ORDER_STATUS_CHOICES.map(x=>`<option${(d.status||'待寄出')===x?' selected':''}>${x}</option>`).join('')}</select></div>
     <div class="form-block"><label class="form-label">備註</label><textarea class="form-textarea" id="eo-note" rows="2">${d.note}</textarea></div>
     <button class="btn btn-gold" onclick="saveEditOrder('${id}')">儲存變更</button>
@@ -1370,7 +1389,7 @@ window.refreshOrderSummary=function(){
 
 function renderNewOrder(){
   const staff = getStaff();
-  const staffOpts = staff.map(s=>`<option>${s}</option>`).join('');
+  const staffOpts = staff.map(s=>`<option>${escH(s)}</option>`).join('');
   const srcChips = SOURCE_LIST.map(s=>`<span class="chip${newOrder.source===s?' on':''}" onclick="setOrderField('source','${s}',this)">${s}</span>`).join('');
   const shipOpts = SHIP_LIST.map(s=>`<option${newOrder.shipping===s?' selected':''}>${s}</option>`).join('');
   const giftOpts = ['','佛牌鍊（標準）','佛牌鍊（金色）','佛牌鍊（銀色）','佛牌鍊（黑色）','不附贈'].map(g=>`<option${newOrder.gift===g?' selected':''}>${g}</option>`).join('');
@@ -1393,7 +1412,7 @@ function renderNewOrder(){
     <div class="form-block">
       <label class="form-label">訂購人姓名（暱稱）</label>
       <div style="display:flex;gap:8px;">
-        <input class="form-input" id="no-customer" type="text" value="${newOrder.customer}" placeholder="輸入或搜尋客戶..." oninput="searchCustomer(this.value)" style="flex:1;">
+        <input class="form-input" id="no-customer" type="text" value="${newOrder.customer}" placeholder="輸入暱稱、真名或手機，底下會即時配對..." oninput="searchCustomer(this.value)" oncompositionend="searchCustomer(this.value)" autocomplete="off" style="flex:1;">
         <button class="btn btn-secondary btn-sm" style="width:auto;margin:0;padding:0 14px;" onclick="openCustomerQuickPick()">▼ 選擇</button>
       </div>
       <div id="customer-suggestions"></div>
@@ -1457,12 +1476,38 @@ function customerSummaryLine(c){
   const ms=customerMethods(c);
   return `${c.realName&&c.realName!==c.name?escH(c.realName)+' · ':''}${escH(c.phone)||'未留手機'} · ${ms.length?ms.map(m=>shipLabel(m.type)).filter((x,i,a)=>a.indexOf(x)===i).join('／'):'未設定收件方式'}`;
 }
+function _hlName(name, v){
+  const n=String(name||''), i=_nk(n).indexOf(_nk(v));
+  if(!v || i<0 || n.length!==_nk(n).length) return escH(n);
+  return escH(n.slice(0,i))+`<span style="background:#fff0a8;border-radius:2px;">${escH(n.slice(i,i+v.trim().length))}</span>`+escH(n.slice(i+v.trim().length));
+}
+function custSuggestInfo(c){
+  const ms=customerMethods(c);
+  const m=ms[Math.max(0,ms.findIndex((x,i)=>isPrefMethod(c,x,i)))];
+  const parts=[];
+  if(c.realName && c.realName!==c.name) parts.push(escH(c.realName));
+  parts.push(escH(c.phone || (m&&m.phone) || '未留手機'));
+  if(m && (m.type||m.detail)) parts.push(m.type==='門市自取' ? '門市自取' : escH(`${shipLabel(m.type)} ${m.detail||''}`.trim()));
+  if(ms.length>1) parts.push(`另有 ${ms.length-1} 種收件方式`);
+  return parts.join(' · ');
+}
 window.searchCustomer=function(v){
   const sugg=document.getElementById('customer-suggestions'); if(!sugg)return;
+  v=String(v||'').trim();
   if(!v){ sugg.innerHTML=''; return; }
-  const matches=getCustomers().filter(c=>customerMatches(c,v)).slice(0,30);
-  if(!matches.length){ sugg.innerHTML=''; return; }
-  sugg.innerHTML=`<div style="background:var(--white);border-radius:8px;border:1px solid rgba(26,10,46,0.1);margin-top:4px;max-height:260px;overflow-y:auto;">` + matches.map(c=>`<div style="padding:10px 14px;font-size:13px;cursor:pointer;border-bottom:1px solid rgba(26,10,46,0.06);" onclick="fillCustomer('${c.id}')">${escH(c.name)}<div style="font-size:11px;color:var(--text3);">${customerSummaryLine(c)}</div></div>`).join('') + `</div>`;
+  const k=_nk(v), orders=getOrders();
+  const rank=c=>{ const n=_nk(c.name); return n===k?0 : n.startsWith(k)?1 : [c.realName,c.lineName,...(c.aliases||[])].some(x=>_nk(x)===k)?2 : n.includes(k)?3 : 4; };
+  const all=getCustomers().filter(c=>customerMatches(c,v));
+  const cnt=new Map(all.map(c=>[c.id, customerOrders(c,orders).length]));
+  const matches=all.sort((a,b)=>rank(a)-rank(b) || cnt.get(b.id)-cnt.get(a.id) || a.name.localeCompare(b.name,'zh-Hant')).slice(0,30);
+  if(!matches.length){ sugg.innerHTML=`<div style="font-size:12px;color:var(--text3);margin:6px 2px 0;">找不到「${escH(v)}」，送出訂單時會自動建立新客戶</div>`; return; }
+  const sameName = n => matches.filter(x=>_nk(x.name)===_nk(n)).length>1;
+  sugg.innerHTML=`<div style="background:var(--white);border-radius:8px;border:1px solid rgba(26,10,46,0.1);margin-top:4px;max-height:300px;overflow-y:auto;">` + matches.map(c=>`
+    <div style="padding:10px 14px;cursor:pointer;border-bottom:1px solid rgba(26,10,46,0.06);line-height:1.45;" onclick="fillCustomer('${c.id}')">
+      <span style="font-size:14px;font-weight:500;">${_hlName(c.name,v)}</span>${sameName(c.name)?' <span style="font-size:10px;color:#c0392b;">同名</span>':''}
+      <span style="font-size:12px;color:var(--text3);margin-left:6px;word-break:break-all;">${custSuggestInfo(c)}</span>
+      ${cnt.get(c.id)?`<span style="font-size:11px;color:var(--text3);margin-left:4px;">· ${cnt.get(c.id)} 筆訂單</span>`:''}
+    </div>`).join('') + `</div>` + (all.length>30?`<div style="font-size:11px;color:var(--text3);margin:4px 2px 0;">還有 ${all.length-30} 位，請多打幾個字</div>`:'');
 }
 
 window.autofillByPhone=function(phone){
@@ -2003,6 +2048,57 @@ async function cascadeRename(type, oldV, newV){
   }
   if(type==='masters') filterState.masters = filterState.masters.map(m=>m===oldV?newV:m);
   return touched.length;
+}
+// ---- 接單人員管理（有帳號的自動帶入；外部經銷／無帳號人員在這裡手動新增）----
+window.openStaffModal=async function(){
+  if(currentRole!=='admin'){ toast('⚠ 只有管理員可以調整接單人員'); return; }
+  await syncStaffNames(); renderStaffModal();
+}
+function renderStaffModal(){
+  const prof = load('staff_profiles')||[], extra = CONFIG.extraStaff||[];
+  const cnt = n => getOrders().filter(o=>o.staff===n).length;
+  openModal(`
+    <div class="modal-title">接單人員</div>
+    <div style="font-size:12px;color:var(--text3);line-height:1.6;margin-bottom:10px;">建立訂單時，接單人員選單 = 有帳號且啟用中的人員（自動）＋你在這裡新增的外部經銷人員（沒有系統帳號也可以）。</div>
+    <div class="sec" style="margin:0 0 6px;">有系統帳號（自動，來自帳號管理）</div>
+    <div style="margin-bottom:12px;">${prof.length?prof.map(n=>`<span class="chip" style="cursor:default;margin:0 6px 6px 0;">${escH(n)} · ${cnt(n)} 筆</span>`).join(''):'<span style="font-size:12px;color:var(--text3);">尚無資料</span>'}</div>
+    <div class="sec" style="margin:0 0 6px;">外部經銷／無帳號人員</div>
+    <div>${extra.length?extra.map((n,i)=>`
+      <div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid rgba(26,10,46,0.06);">
+        <span style="flex:1;font-size:14px;">${escH(n)} <span style="color:var(--text3);font-size:11px;">${cnt(n)} 筆訂單</span></span>
+        <button class="btn btn-secondary btn-sm" style="margin:0;width:auto;" onclick="renameExtraStaff(${i})">改名</button>
+        <button class="btn btn-secondary btn-sm" style="margin:0;width:auto;color:#c0392b;" onclick="removeExtraStaff(${i})">刪除</button>
+      </div>`).join(''):'<div style="font-size:12px;color:var(--text3);padding:6px 0;">尚未新增</div>'}</div>
+    <div style="display:flex;gap:8px;margin-top:12px;">
+      <input class="form-input" id="staff-new" placeholder="輸入姓名／經銷商名稱" style="flex:1;margin:0;" onkeydown="if(event.key==='Enter')addExtraStaff()">
+      <button class="btn btn-gold" style="width:auto;margin:0;padding:0 16px;" onclick="addExtraStaff()">新增</button>
+    </div>
+    <div style="font-size:11px;margin-top:8px;color:var(--text3);">刪除人員不會影響過去的訂單，訂單上的接單人員名字會保留。</div>
+    <button class="btn btn-secondary" style="width:100%;margin-top:12px;" onclick="_closeModal()">關閉</button>`);
+}
+window.addExtraStaff=async function(){
+  const n=(document.getElementById('staff-new')?.value||'').trim();
+  if(!n){ toast('⚠ 請輸入姓名'); return; }
+  if(getStaff().includes(n)){ toast('⚠ 「'+n+'」已經在名單裡'); return; }
+  CONFIG.extraStaff=[...(CONFIG.extraStaff||[]),n]; await pushConfigToCloud();
+  toast('✅ 已新增 '+n); renderStaffModal(); if(currentPage==='settings') renderPage('settings');
+}
+window.renameExtraStaff=async function(i){
+  const old=(CONFIG.extraStaff||[])[i]; if(old==null) return;
+  const n=(prompt('改成：',old)||'').trim(); if(!n||n===old) return;
+  if(getStaff().includes(n)){ toast('⚠ 名字重複'); return; }
+  CONFIG.extraStaff[i]=n; await pushConfigToCloud();
+  if(confirm('要把過去訂單上的「'+old+'」也一起改成「'+n+'」嗎？')){
+    const os=getOrders(); const ch=os.filter(o=>o.staff===old); ch.forEach(o=>o.staff=n); save('orders',os);
+    for(const o of ch) await pushOrderToCloud(o);
+  }
+  renderStaffModal(); if(currentPage==='settings') renderPage('settings');
+}
+window.removeExtraStaff=async function(i){
+  const n=(CONFIG.extraStaff||[])[i]; if(n==null) return;
+  if(!confirm('刪除「'+n+'」？過去訂單上的名字會保留。')) return;
+  CONFIG.extraStaff.splice(i,1); await pushConfigToCloud();
+  renderStaffModal(); if(currentPage==='settings') renderPage('settings');
 }
 window.openManageListModal=function(type){
   if(currentRole !== 'admin'){ toast('⚠ 只有管理員可以調整分類設定'); return; }
@@ -3761,6 +3857,7 @@ function renderSettings(){
       <div class="sec" style="margin:0 0 4px;">分類設定</div>
       <div style="font-size:12px;color:var(--text3);margin-bottom:10px;line-height:1.6;">調整商品種類、製作師傅、功效選項。有錯字可以直接改名，已建檔的商品會一起更新；種類還能設定編號前綴與預設功效。</div>
       <button class="btn btn-secondary" style="width:100%;display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;" onclick="openDefaultEffectsModal()"><span>預設功效設定（依商品種類）</span><span style="color:var(--text3);font-size:12px;">已設 ${Object.keys(CONFIG.catEffects).filter(k=>getList('cats').includes(k)).length}/${getList('cats').length} ›</span></button>
+      <button class="btn btn-secondary" style="width:100%;display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;" onclick="openStaffModal()"><span>接單人員（含外部經銷）</span><span style="color:var(--text3);font-size:12px;">${getStaff().length} 位 ›</span></button>
       ${[['cats','商品種類'],['masters','製作師傅'],['effects','功效需求']].map(([t,l])=>`
         <button class="btn btn-secondary" style="width:100%;display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;" onclick="openManageListModal('${t}')"><span>${l}</span><span style="color:var(--text3);font-size:12px;">${getList(t).length} 項 ›</span></button>`).join('')}
       <div style="font-size:11px;margin-top:2px;color:${_configSyncOk===false?'#c0392b':'var(--text3)'};">${!CLOUD_ENABLED?'目前僅存在這支裝置':_configSyncOk===false?'⚠ 分類設定尚未同步到雲端（請先在 Supabase 執行 v1.2.0 的 SQL），目前只存在這支裝置':'☁️ 分類設定會同步到所有裝置'}</div>
@@ -3820,7 +3917,7 @@ window.saveMyNickname=async function(){
   try{
     await callAdminApi('update_profile', { userId: currentUser.id, name });
     currentProfile={ ...currentProfile, name };
-    applyRolePermissions();
+    applyRolePermissions(); syncStaffNames();
     toast('✅ 暱稱已更新'); _closeModal();
     if(currentPage==='settings') loadAccountsList();
   }catch(e){ toast('⚠ '+e.message+'（若提示找不到動作，請先更新 api/admin.js）'); }
@@ -3848,6 +3945,7 @@ async function loadAccountsList(){
   try{
     const { data, error } = await sb.from('profiles').select('*').eq('tenant_id', TENANT_ID).order('created_at');
     if(error) throw error;
+    save('staff_profiles', data.filter(a=>a.active!==false).map(a=>a.name).filter(Boolean));
     el.innerHTML = data.map(a=>`
       <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid rgba(26,10,46,0.06);">
         <div style="min-width:0;flex:1;">
