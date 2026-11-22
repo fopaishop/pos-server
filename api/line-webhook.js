@@ -15,6 +15,7 @@
 //   今日           今天建立的訂單（依狀態分組）
 //   待處理         全部待寄出＋待選鍊子＋待自取
 //   待寄出／待選鍊子／待自取   只看單一狀態
+//   泰國           待泰國處理（等出差再處理的售後維修、包殼）
 //   指令           顯示指令說明
 
 const crypto = require('crypto');
@@ -22,7 +23,7 @@ const { createClient } = require('@supabase/supabase-js');
 
 const DEFAULT_TENANT = 'dbf9fcd3-110a-4dde-8ef9-40c2f89967a9';
 const PENDING = ['待寄出', '待選鍊子', '待自取'];
-const STATUS_ICON = { '待寄出': '📦', '待選鍊子': '📿', '待自取': '🏪', '已寄出': '✅', '取消': '✖️', '退貨': '↩️' };
+const STATUS_ICON = { '待寄出': '📦', '待選鍊子': '📿', '待自取': '🏪', '待泰國處理': '🇹🇭', '已寄出': '✅', '取消': '✖️', '退貨': '↩️' };
 
 let _sb = null;
 function getSb() {
@@ -57,7 +58,8 @@ function parseCommand(text) {
   if (flat === '解除綁定') return { cmd: 'unbind' };
   if (/^(今日|今天)(訂單)?$/.test(flat)) return { cmd: 'today' };
   if (/^(全部)?待處理(訂單)?$/.test(flat) || flat === '待辦') return { cmd: 'pending' };
-  if (/^(待寄出|待選鍊子|待自取)(訂單)?$/.test(flat)) return { cmd: 'status', status: flat.replace(/訂單$/, '') };
+  if (/^(待寄出|待選鍊子|待自取|待泰國處理)(訂單)?$/.test(flat)) return { cmd: 'status', status: flat.replace(/訂單$/, '') };
+  if (/^(泰國|泰國清單|泰國處理|出差清單)$/.test(flat)) return { cmd: 'status', status: '待泰國處理' };
   if (/^(指令|說明|help|\?|？)$/i.test(flat)) return { cmd: 'help' };
   return null;
 }
@@ -66,6 +68,7 @@ const HELP = [
   '・今日：今天建立的訂單',
   '・待處理：全部待寄出／待選鍊子／待自取',
   '・待寄出、待選鍊子、待自取：只看單一狀態',
+  '・泰國：待泰國處理清單（售後維修、包殼等）',
   '・解除綁定：取消這個群組的查詢權限',
 ].join('\n');
 
@@ -94,7 +97,7 @@ function mmdd(d) { const m = String(d || '').match(/^\d{4}-(\d{2})-(\d{2})/); re
 function formatOrders(title, orders, pmap, { showDate }) {
   const groups = {};
   orders.forEach(o => (groups[o.status || '未分類'] = groups[o.status || '未分類'] || []).push(o));
-  const order = [...PENDING, '已寄出', '取消', '退貨'];
+  const order = [...PENDING, '待泰國處理', '已寄出', '取消', '退貨'];
   const keys = Object.keys(groups).sort((a, b) => (order.indexOf(a) + 99 * (order.indexOf(a) < 0)) - (order.indexOf(b) + 99 * (order.indexOf(b) < 0)));
   const lines = [title];
   if (!orders.length) { lines.push('', '目前沒有訂單 🎉'); return lines; }
